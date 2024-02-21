@@ -10,6 +10,9 @@ public extension LuaLibrary {
             if let fn = child.value as? LuaSwiftFunction, let label = child.label {
                 names.append(label)
                 tab[label] = .function(.swift(fn))
+            } else if let val = child.value as? LuaValue, let label = child.label {
+                names.append(label)
+                tab[label] = val
             }
         }
         print("Library \(name): \(names.joined(separator: " "))")

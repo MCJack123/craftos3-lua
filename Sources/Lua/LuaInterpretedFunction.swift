@@ -16,12 +16,51 @@ private func readList<T>(_ data: UnsafeRawBufferPointer, _ pos: inout Int, _ bod
     return arr
 }
 
+private enum DumpValue {
+    case byte(UInt8)
+    case int(Int32)
+    case instruction(LuaOpcode)
+    case number(Double)
+    case string(String)
+
+    var size: Int {
+        switch self {
+            case .byte: return 1
+            case .int, .instruction: return 4
+            case .number: return 8
+            case .string(let str): return 5 + str.count
+        }
+    }
+
+    func write(to buf: UnsafeMutableRawBufferPointer, at pos: Int) -> Int {
+        switch self {
+            case .byte(let val):
+                buf.storeBytes(of: val, toByteOffset: pos, as: UInt8.self)
+                return pos + 1
+            case .int(let val):
+                buf.storeBytes(of: val, toByteOffset: pos, as: Int32.self)
+                return pos + 4
+            case .instruction(let val):
+                buf.storeBytes(of: val.encoded, toByteOffset: pos, as: UInt32.self)
+                return pos + 4
+            case .number(let val):
+                buf.storeBytes(of: val, toByteOffset: pos, as: Double.self)
+                return pos + 8
+            case .string(let val):
+                let size = UInt32(val.count)
+                buf.storeBytes(of: size, toByteOffset: pos, as: UInt32.self)
+                UnsafeMutableRawBufferPointer(rebasing: buf[(pos+4)...(pos+4+Int(size))]).copyBytes(from: val.cString(using: .isoLatin1)!.map {UInt8($0)})
+                return pos + Int(size) + 5
+        }
+    }
+}
+
 public class LuaInterpretedFunction: Hashable {
     internal let opcodes: [LuaOpcode]
     internal let constants: [LuaValue]
     internal let prototypes: [LuaInterpretedFunction]
+    internal let upvalues: [(UInt8, UInt8, String?)] // instack, idx, name
     internal let stackSize: UInt8
-    internal let numUpvalues: UInt8
     internal let numParams: UInt8
     internal let isVararg: UInt8
     internal let name: String
@@ -29,29 +68,26 @@ public class LuaInterpretedFunction: Hashable {
     internal let lastLineDefined: Int32
     internal let lineinfo: [Int32]
     internal let locals: [(String, Int32, Int32)]
-    internal let upvalueNames: [String]
 
     public enum DecodeError: Error {
         case invalidBytecode
     }
 
     public convenience init(decoding data: UnsafeRawBufferPointer) throws {
-        if !data.prefix(12).elementsEqual([0x1B, 0x4C, 0x75, 0x61, 0x51, 0x00, 0x01, 0x04, 0x04, 0x04, 0x08, 0x00]) {
+        if !data.prefix(18).elementsEqual([0x1B, 0x4C, 0x75, 0x61, 0x52, 0x00, 0x01, 0x04, 0x04, 0x04, 0x08, 0x00, 0x19, 0x93, 0x0D, 0x0A, 0x1A, 0x0A]) {
             throw DecodeError.invalidBytecode
         }
-        var pos = 12
+        var pos = 18
         try self.init(data: data, pos: &pos)
     }
 
     private init(data: UnsafeRawBufferPointer, pos: inout Int) throws {
-        name = readString(data, &pos)
         lineDefined = data.loadUnaligned(fromByteOffset: pos, as: Int32.self)
         lastLineDefined = data.loadUnaligned(fromByteOffset: pos + 4, as: Int32.self)
-        numUpvalues = data[pos + 8]
-        numParams = data[pos + 9]
-        isVararg = data[pos + 10]
-        stackSize = data[pos + 11]
-        pos += 12
+        numParams = data[pos + 8]
+        isVararg = data[pos + 9]
+        stackSize = data[pos + 10]
+        pos += 11
         opcodes = try readList(data, &pos) {_data, _pos in
             let n = data.loadUnaligned(fromByteOffset: _pos, as: UInt32.self)
             _pos += 4
@@ -81,6 +117,12 @@ public class LuaInterpretedFunction: Hashable {
         prototypes = try readList(data, &pos) {_data, _pos in
             return try LuaInterpretedFunction(data: _data, pos: &_pos)
         }
+        var _upvalues = readList(data, &pos) {_data, _pos in
+            let retval: (UInt8, UInt8, String?) = (_data[_pos], _data[_pos+1], nil)
+            _pos += 2
+            return retval
+        }
+        name = readString(data, &pos)
         lineinfo = readList(data, &pos) {_data, _pos in
             defer {_pos += 4}
             return _data.loadUnaligned(fromByteOffset: _pos, as: Int32.self)
@@ -90,9 +132,70 @@ public class LuaInterpretedFunction: Hashable {
             defer {_pos += 8}
             return (str, _data.loadUnaligned(fromByteOffset: _pos, as: Int32.self), _data.loadUnaligned(fromByteOffset: _pos + 4, as: Int32.self))
         }
-        upvalueNames = readList(data, &pos) {_data, _pos in
+        let upvalueNames = readList(data, &pos) {_data, _pos in
             return readString(_data, &_pos)
         }
+        for (i, v) in upvalueNames.enumerated() {
+            _upvalues[i].2 = v
+        }
+        upvalues = _upvalues
+    }
+
+    public func dump() -> [UInt8] {
+        var output = [0x1B, 0x4C, 0x75, 0x61, 0x51, 0x00, 0x01, 0x04, 0x04, 0x04, 0x08, 0x00, 0x19, 0x93, 0x0D, 0x0A, 0x1A, 0x0A].map {DumpValue.byte($0)}
+        output.append(contentsOf: dumpFunction())
+        var size = 0
+        for v in output {size += v.size}
+        return [UInt8](unsafeUninitializedCapacity: size, initializingWith: {_buf, _size in
+            let buf = UnsafeMutableRawBufferPointer(_buf)
+            var pos = 0
+            for v in output {
+                pos = v.write(to: buf, at: pos)
+            }
+            _size = pos
+        })
+    }
+
+    private func dumpFunction() -> [DumpValue] {
+        var output: [DumpValue] = [.int(lineDefined), .int(lastLineDefined), .byte(numParams), .byte(isVararg), .byte(stackSize), .int(Int32(opcodes.count))]
+        for op in opcodes {output.append(.instruction(op))}
+        output.append(.int(Int32(constants.count)))
+        for v in constants {
+            switch v {
+                case .nil:
+                    output.append(.byte(0))
+                case .boolean(let val):
+                    output.append(.byte(1))
+                    output.append(.byte(val ? 1 : 0))
+                case .number(let val):
+                    output.append(.byte(3))
+                    output.append(.number(val))
+                case .string(let val):
+                    output.append(.byte(4))
+                    output.append(.string(val.string))
+                default:
+                    assertionFailure("Invalid constant type in value \(v)")
+            }
+        }
+        output.append(.int(Int32(prototypes.count)))
+        for v in prototypes {output.append(contentsOf: v.dumpFunction())}
+        output.append(.int(Int32(upvalues.count)))
+        for v in upvalues {
+            output.append(.byte(v.0))
+            output.append(.byte(v.1))
+        }
+        output.append(.string(name))
+        output.append(.int(Int32(lineinfo.count)))
+        for v in lineinfo {output.append(.int(v))}
+        output.append(.int(Int32(locals.count)))
+        for v in locals {
+            output.append(.string(v.0))
+            output.append(.int(v.1))
+            output.append(.int(v.2))
+        }
+        output.append(.int(Int32(upvalues.count)))
+        for v in upvalues {output.append(.string(v.2 ?? ""))}
+        return output
     }
 
     public static func == (lhs: LuaInterpretedFunction, rhs: LuaInterpretedFunction) -> Bool {

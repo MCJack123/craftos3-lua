@@ -8,7 +8,7 @@ public class LuaUpvalue {
         self.index = index
     }
 
-    internal init(with value: LuaValue) {
+    public init(with value: LuaValue) {
         self._value = value
     }
 

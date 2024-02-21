@@ -2,47 +2,50 @@ internal enum LuaOpcode {
     enum Operation: UInt8 {
         case MOVE = 0
         case LOADK = 1
-        case LOADBOOL = 2
-        case LOADNIL = 3
-        case GETUPVAL = 4
-        case GETGLOBAL = 5
-        case GETTABLE = 6
-        case SETGLOBAL = 7
-        case SETUPVAL = 8
-        case SETTABLE = 9
-        case NEWTABLE = 10
-        case SELF = 11
-        case ADD = 12
-        case SUB = 13
-        case MUL = 14
-        case DIV = 15
-        case MOD = 16
-        case POW = 17
-        case UNM = 18
-        case NOT = 19
-        case LEN = 20
-        case CONCAT = 21
-        case JMP = 22
-        case EQ = 23
-        case LT = 24
-        case LE = 25
-        case TEST = 26
-        case TESTSET = 27
-        case CALL = 28
-        case TAILCALL = 29
-        case RETURN = 30
-        case FORLOOP = 31
-        case FORPREP = 32
-        case TFORLOOP = 33
-        case SETLIST = 34
-        case CLOSE = 35
-        case CLOSURE = 36
-        case VARARG = 37
+        case LOADKX = 2
+        case LOADBOOL = 3
+        case LOADNIL = 4
+        case GETUPVAL = 5
+        case GETTABUP = 6
+        case GETTABLE = 7
+        case SETTABUP = 8
+        case SETUPVAL = 9
+        case SETTABLE = 10
+        case NEWTABLE = 11
+        case SELF = 12
+        case ADD = 13
+        case SUB = 14
+        case MUL = 15
+        case DIV = 16
+        case MOD = 17
+        case POW = 18
+        case UNM = 19
+        case NOT = 20
+        case LEN = 21
+        case CONCAT = 22
+        case JMP = 23
+        case EQ = 24
+        case LT = 25
+        case LE = 26
+        case TEST = 27
+        case TESTSET = 28
+        case CALL = 29
+        case TAILCALL = 30
+        case RETURN = 31
+        case FORLOOP = 32
+        case FORPREP = 33
+        case TFORCALL = 34
+        case TFORLOOP = 35
+        case SETLIST = 36
+        case CLOSURE = 37
+        case VARARG = 38
+        case EXTRAARG = 39
     }
 
     case iABC(Operation, UInt8, UInt16, UInt16)
     case iABx(Operation, UInt8, UInt32)
     case iAsBx(Operation, UInt8, Int32)
+    case iAx(Operation, UInt32)
 
     internal static func decode(_ op: UInt32) -> LuaOpcode? {
         if let opcode = Operation(rawValue: UInt8(op & 0x3F)) {
@@ -51,17 +54,20 @@ internal enum LuaOpcode {
                 case .MOVE, .LOADBOOL, .LOADNIL, .GETUPVAL, .GETTABLE, .SETUPVAL,
                      .SETTABLE, .NEWTABLE, .SELF, .ADD, .SUB, .MUL, .DIV, .MOD,
                      .POW, .UNM, .NOT, .LEN, .CONCAT, .EQ, .LT, .LE, .TEST,
-                     .TESTSET, .CALL, .TAILCALL, .RETURN, .TFORLOOP, .SETLIST,
-                     .CLOSE, .VARARG:
+                     .TESTSET, .CALL, .TAILCALL, .RETURN, .SETLIST, .LOADKX,
+                     .VARARG, .GETTABUP, .SETTABUP, .TFORCALL:
                     let b = (op >> 23) & 0x1FF
                     let c = (op >> 14) & 0x1FF
                     return .iABC(opcode, a, UInt16(b), UInt16(c))
-                case .LOADK, .GETGLOBAL, .SETGLOBAL, .CLOSURE:
+                case .LOADK, .CLOSURE:
                     let bx  = (op >> 14) & 0x3FFFF
                     return .iABx(opcode, a, bx)
-                case .JMP, .FORLOOP, .FORPREP:
+                case .JMP, .FORLOOP, .FORPREP, .TFORLOOP:
                     let sbx = Int32((op >> 14) & 0x3FFFF) - 131071
                     return .iAsBx(opcode, a, sbx)
+                case .EXTRAARG:
+                    let ax = UInt32(op >> 6)
+                    return .iAx(opcode, ax)
             }
         } else {
             return nil
@@ -76,6 +82,8 @@ internal enum LuaOpcode {
                 return UInt32(op.rawValue) | (UInt32(a) << 6) | (UInt32(bx) << 14)
             case .iAsBx(let op, let a, let sbx):
                 return UInt32(op.rawValue) | (UInt32(a) << 6) | (UInt32(sbx + 131071) << 14)
+            case .iAx(let op, let ax):
+                return UInt32(op.rawValue) | (ax << 6)
         }
     }
 }

@@ -29,6 +29,16 @@ internal class LuaVM {
                             switch op {
                                 case .MOVE:
                                     ci.stack[a] = ci.stack[b]
+                                case .LOADKX:
+                                    let extraarg = insts[pc]
+                                    pc += 1
+                                    guard case let .iAx(op2, ax) = extraarg else {
+                                        throw Lua.LuaError.vmError
+                                    }
+                                    if op2 != .EXTRAARG {
+                                        throw Lua.LuaError.vmError
+                                    }
+                                    ci.stack[a] = constants[ax]
                                 case .LOADBOOL:
                                     ci.stack[a] = .boolean(b != 0)
                                     if c != 0 {pc += 1}
@@ -38,14 +48,26 @@ internal class LuaVM {
                                     }
                                 case .GETUPVAL:
                                     ci.stack[a] = cl.upvalues[b].value
+                                case .GETTABUP:
+                                    if b >= cl.upvalues.count {
+                                        throw Lua.LuaError.runtimeError(message: "attempt to index upvalue '?' (a nil value)")
+                                    }
+                                    ci.stack[a] = try await index(table: cl.upvalues[b].value, index: rkc, state: state)
                                 case .GETTABLE:
                                     ci.stack[a] = try await index(table: ci.stack[b], index: rkc, state: state)
                                 case .SETUPVAL:
                                     cl.upvalues[b].value = ci.stack[a]
+                                case .SETTABUP:
+                                    if b >= cl.upvalues.count {
+                                        throw Lua.LuaError.runtimeError(message: "attempt to index upvalue '?' (a nil value)")
+                                    }
+                                    try await index(table: cl.upvalues[a].value, index: rkb, value: rkc, state: state)
                                 case .SETTABLE:
                                     try await index(table: ci.stack[a], index: rkb, value: rkc, state: state)
                                 case .NEWTABLE:
-                                    ci.stack[a] = .table(LuaTable())
+                                    let arrsz = (b >> 3) == 0 ? b & 7 : (8 | (b & 7)) << ((b >> 3) - 1)
+                                    let tabsz = (c >> 3) == 0 ? c & 7 : (8 | (c & 7)) << ((c >> 3) - 1)
+                                    ci.stack[a] = .table(LuaTable(hash: Int(tabsz), array: Int(arrsz)))
                                 case .SELF:
                                     ci.stack[a+1] = ci.stack[b]
                                     ci.stack[a] = try await index(table: ci.stack[b], index: rkc, state: state)
@@ -61,7 +83,7 @@ internal class LuaVM {
                                                 fallthrough
                                             }
                                         default:
-                                            if let mt = ci.stack[b].metatable(in: state.luaState)?.metatable?.members[.Constants.__unm] {
+                                            if let mt = ci.stack[b].metatable(in: state.luaState)?.metatable?[.Constants.__unm] {
                                                 switch mt {
                                                     case .function(let fn):
                                                         let res = try await fn.call(in: state, with: [ci.stack[b]])
@@ -78,7 +100,7 @@ internal class LuaVM {
                                     switch ci.stack[b] {
                                         case .string(let s): ci.stack[a] = .number(Double(s.string.count))
                                         default:
-                                            if let mt = ci.stack[b].metatable(in: state.luaState)?.metatable?.members[.Constants.__len] {
+                                            if let mt = ci.stack[b].metatable(in: state.luaState)?.metatable?[.Constants.__len] {
                                                 switch mt {
                                                     case .function(let fn):
                                                         let res = try await fn.call(in: state, with: [ci.stack[b]])
@@ -101,10 +123,10 @@ internal class LuaVM {
                                         res = nb < nc
                                     } else if case let .string(sb) = rkb, case let .string(sc) = rkc {
                                         res = sb < sc
-                                    } else if let mt = rkb.metatable(in: state.luaState)?.members[.Constants.__lt], case let .function(fn) = mt {
+                                    } else if let mt = rkb.metatable(in: state.luaState)?[.Constants.__lt], case let .function(fn) = mt {
                                         let v = try await fn.call(in: state, with: [rkb, rkc])
                                         res = v.first?.toBool ?? false
-                                    } else if let mt = rkc.metatable(in: state.luaState)?.members[.Constants.__lt], case let .function(fn) = mt {
+                                    } else if let mt = rkc.metatable(in: state.luaState)?[.Constants.__lt], case let .function(fn) = mt {
                                         let v = try await fn.call(in: state, with: [rkb, rkc])
                                         res = v.first?.toBool ?? false
                                     } else if case .number = rkb {
@@ -119,16 +141,16 @@ internal class LuaVM {
                                         res = nb <= nc
                                     } else if case let .string(sb) = rkb, case let .string(sc) = rkc {
                                         res = sb <= sc
-                                    } else if let mt = rkb.metatable(in: state.luaState)?.members[.Constants.__le], case let .function(fn) = mt {
+                                    } else if let mt = rkb.metatable(in: state.luaState)?[.Constants.__le], case let .function(fn) = mt {
                                         let v = try await fn.call(in: state, with: [rkb, rkc])
                                         res = v.first?.toBool ?? false
-                                    } else if let mt = rkc.metatable(in: state.luaState)?.members[.Constants.__le], case let .function(fn) = mt {
+                                    } else if let mt = rkc.metatable(in: state.luaState)?[.Constants.__le], case let .function(fn) = mt {
                                         let v = try await fn.call(in: state, with: [rkb, rkc])
                                         res = v.first?.toBool ?? false
-                                    } else if let mt = rkb.metatable(in: state.luaState)?.members[.Constants.__lt], case let .function(fn) = mt {
+                                    } else if let mt = rkb.metatable(in: state.luaState)?[.Constants.__lt], case let .function(fn) = mt {
                                         let v = try await fn.call(in: state, with: [rkb, rkc])
                                         res = v.first?.toBool ?? false
-                                    } else if let mt = rkc.metatable(in: state.luaState)?.members[.Constants.__lt], case let .function(fn) = mt {
+                                    } else if let mt = rkc.metatable(in: state.luaState)?[.Constants.__lt], case let .function(fn) = mt {
                                         let v = try await fn.call(in: state, with: [rkb, rkc])
                                         res = v.first?.toBool ?? false
                                     } else if case .number = rkb {
@@ -187,7 +209,7 @@ internal class LuaVM {
                                         case .swift:
                                             return res
                                     }
-                                case .TFORLOOP:
+                                case .TFORCALL:
                                     let fn: LuaFunction
                                     switch ci.stack[a] {
                                         case .function(let _fn): fn = _fn
@@ -200,11 +222,6 @@ internal class LuaVM {
                                     if res.count < c {res.append(contentsOf: [LuaValue](repeating: .nil, count: Int(c) - res.count))}
                                     else if res.count > c {res = [LuaValue](res[0..<Int(c)])}
                                     ci.stack.replaceSubrange((Int(a) + 3) ... (Int(a) + 2 + Int(c)), with: res)
-                                    if ci.stack[a+3] != .nil {
-                                        ci.stack[a+2] = ci.stack[a+3]
-                                    } else {
-                                        pc += 1
-                                    }
                                 case .SETLIST:
                                     let _c: UInt32
                                     if c == 0 {
@@ -223,10 +240,6 @@ internal class LuaVM {
                                     for j in 1..._b {
                                         tbl[Int(offset + j)] = ci.stack[Int(a) + Int(j)]
                                     }
-                                case .CLOSE:
-                                    for j in 0...a {
-                                        cl.upvalues[j].close()
-                                    }
                                 default: throw Lua.LuaError.vmError
                             }
                         case .iABx(let op, let a, let bx):
@@ -234,21 +247,15 @@ internal class LuaVM {
                             switch op {
                                 case .LOADK:
                                     ci.stack[a] = constants[bx]
-                                case .GETGLOBAL:
-                                    ci.stack[a] = cl.environment.members[constants[bx]] ?? .nil
-                                case .SETGLOBAL:
-                                    cl.environment.members[constants[bx]] = ci.stack[a]
                                 case .CLOSURE:
                                     let proto = cl.proto.prototypes[bx]
                                     var upvalues = [LuaUpvalue]()
-                                    for _ in 0..<proto.numUpvalues {
-                                        guard case let .iABC(cop, _, cb, _) = insts[pc] else {throw Lua.LuaError.vmError}
-                                        switch cop {
-                                            case .MOVE: upvalues.append(LuaUpvalue(in: ci, at: Int(cb)))
-                                            case .GETUPVAL: upvalues.append(cl.upvalues[cb])
-                                            default: throw Lua.LuaError.vmError
+                                    for upval in proto.upvalues {
+                                        if upval.0 != 0 {
+                                            upvalues.append(LuaUpvalue(in: ci, at: Int(upval.1)))
+                                        } else {
+                                            upvalues.append(cl.upvalues[upval.1])
                                         }
-                                        pc += 1
                                     }
                                     ci.stack[a] = .function(.lua(LuaClosure(for: proto, with: upvalues, environment: cl.environment)))
                                 default: throw Lua.LuaError.vmError
@@ -258,6 +265,9 @@ internal class LuaVM {
                             switch op {
                                 case .JMP:
                                     pc += Int(sbx)
+                                    for j in (Int(a) - 1) ..< cl.upvalues.count {
+                                        cl.upvalues[j].close()
+                                    }
                                 case .FORPREP:
                                     guard case let .number(initial) = ci.stack[a] else {throw Lua.LuaError.runtimeError(message: "'for' initial value must be a number")}
                                     guard case .number = ci.stack[a + 1] else {throw Lua.LuaError.runtimeError(message: "'for' initial value must be a number")}
@@ -274,6 +284,17 @@ internal class LuaVM {
                                         ci.stack[a + 3] = .number(value)
                                         pc += Int(sbx)
                                     }
+                                case .TFORLOOP:
+                                    if ci.stack[a + 1] != .nil {
+                                        ci.stack[a] = ci.stack[a + 1]
+                                        pc += Int(sbx)
+                                    }
+                                default: throw Lua.LuaError.vmError
+                            }
+                        case .iAx(let op, let ax):
+                            switch op {
+                                case .EXTRAARG:
+                                    break // do nothing
                                 default: throw Lua.LuaError.vmError
                             }
                     }
@@ -288,23 +309,33 @@ internal class LuaVM {
         switch fn {
             case .lua(let cl):
                 let nextci = CallInfo(for: fn, numResults: returns, stackSize: Int(cl.proto.stackSize))
-                if let args = args {
-                    nextci.stack.replaceSubrange(0..<args, with: ci.stack[(idx + 1) ... (idx + args)])
-                } else {
-                    nextci.stack.replaceSubrange(0..<(ci.top - idx - 1), with: ci.stack[idx...ci.top])
+                var argv = args != nil ? [LuaValue](ci.stack[(idx + 1) ... (idx + args!)]) : [LuaValue](ci.stack[(idx+1)..<ci.top])
+                if argv.count > cl.proto.numParams {
+                    if cl.proto.isVararg != 0 {
+                        ci.vararg = [LuaValue](argv[Int(cl.proto.numParams)...])
+                    }
+                    argv = [LuaValue](argv[0..<Int(cl.proto.numParams)])
+                } else if argv.count < cl.proto.numParams {
+                    argv.append(contentsOf: [LuaValue](repeating: .nil, count: Int(cl.proto.numParams) - argv.count))
                 }
+                if cl.proto.isVararg != 0 && ci.vararg == nil {
+                    ci.vararg = [LuaValue]()
+                }
+                nextci.stack.replaceSubrange(0..<Int(cl.proto.numParams), with: argv)
                 ci.top = idx
                 state.callStack.append(nextci)
                 return nextci
             case .swift(let sfn):
-                let argv = args != nil ? [LuaValue](ci.stack[(idx + 1) ... (idx + args!)]) : [LuaValue]()
-                var res = try await sfn.body(Lua(in: state), argv)
+                let argv = args != nil ? [LuaValue](ci.stack[(idx + 1) ... (idx + args!)]) : [LuaValue](ci.stack[(idx+1)..<ci.top])
+                var res = try await sfn.body(Lua(in: state), LuaArgs(argv))
                 if let returns = returns {
                     if res.count > returns {res = [LuaValue](res[0..<returns])}
                     else if res.count < returns {res.append(contentsOf: [LuaValue](repeating: .nil, count: returns - res.count))}
                     ci.stack.replaceSubrange(idx ..< min(idx + returns, ci.stack.count), with: res)
+                    ci.top = min(idx + returns, ci.stack.count)
                 } else {
                     ci.stack.replaceSubrange(idx ..< min(idx + res.count, ci.stack.count), with: res)
+                    ci.top = min(idx + res.count, ci.stack.count)
                 }
                 return nil
         }
@@ -315,7 +346,7 @@ internal class LuaVM {
             case .function(let fn):
                 return try await call(function: fn, in: ci, at: idx, args: args, returns: returns, state: state)
             default:
-                if let meta = ci.stack[idx].metatable(in: state.luaState)?.members[.Constants.__call] {
+                if let meta = ci.stack[idx].metatable(in: state.luaState)?[.Constants.__call] {
                     switch meta {
                         case .function(let fn):
                             return try await call(function: fn, in: ci, at: idx, args: args, returns: returns, state: state)
@@ -329,12 +360,13 @@ internal class LuaVM {
     internal static func index(table: LuaValue, index: LuaValue, state: LuaThread) async throws -> LuaValue {
         switch table {
             case .table(let tbl):
-                if let val = tbl.members[index] {
-                    return val
+                let v = tbl[index]
+                if v != .nil {
+                    return v
                 }
             default: break
         }
-        if let mt = table.metatable(in: state.luaState)?.members[.Constants.__index] {
+        if let mt = table.metatable(in: state.luaState)?[.Constants.__index] {
             switch mt {
                 case .table: return try await LuaVM.index(table: mt, index: index, state: state)
                 case .function(let fn):
@@ -352,13 +384,13 @@ internal class LuaVM {
     internal static func index(table: LuaValue, index: LuaValue, value: LuaValue, state: LuaThread) async throws {
         switch table {
             case .table(let tbl):
-                if tbl.members[index] != nil {
-                    tbl.members[index] = value == .nil ? nil : value
+                if tbl[index] != .nil {
+                    tbl[index] = value
                     return
                 }
             default: break
         }
-        if let mt = table.metatable(in: state.luaState)?.members[.Constants.__index] {
+        if let mt = table.metatable(in: state.luaState)?[.Constants.__index] {
             switch mt {
                 case .function(let fn):
                     _ = try await fn.call(in: state, with: [table, index, value])
@@ -367,7 +399,7 @@ internal class LuaVM {
             }
         }
         switch table {
-            case .table(let tbl): tbl.members[index] = value == .nil ? nil : value
+            case .table(let tbl): tbl[index] = value
             default: throw Lua.LuaError.runtimeError(message: "attempt to index a \(table.type) value")
         }
     }
@@ -386,7 +418,7 @@ internal class LuaVM {
                 default: throw Lua.LuaError.vmError
             }
         }
-        if let mt = a.metatable(in: state.luaState)?.members[.Constants.arithops[op]!] ?? b.metatable(in: state.luaState)?.members[.Constants.arithops[op]!] {
+        if let mt = a.metatable(in: state.luaState)?[.Constants.arithops[op]!] ?? b.metatable(in: state.luaState)?[.Constants.arithops[op]!] {
             switch mt {
                 case .function(let fn):
                     let res = try await fn.call(in: state, with: [a, b])

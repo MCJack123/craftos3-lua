@@ -5,6 +5,7 @@ public class CallInfo {
     internal let numResults: Int?
     internal var tailcalls: Int = 0
     internal var top: Int = 0
+    internal var vararg: [LuaValue]? = nil
 
     internal init(for cl: LuaFunction, numResults nRes: Int?, stackSize: Int = 0) {
         function = cl
