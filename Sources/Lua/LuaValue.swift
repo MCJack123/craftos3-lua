@@ -143,7 +143,7 @@ public enum LuaValue: Hashable {
     public var toNumber: Double? {
         switch self {
             case .number(let val): return val
-            case .string(let val): return Double(val.string.replacing(try! Regex("^\\s+"), with: ""))
+            case .string(let val): return Double(val.string)
             default: return nil
         }
     }
