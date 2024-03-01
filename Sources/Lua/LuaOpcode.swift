@@ -1,5 +1,5 @@
-internal enum LuaOpcode {
-    enum Operation: UInt8 {
+public enum LuaOpcode {
+    public enum Operation: UInt8 {
         case MOVE = 0
         case LOADK = 1
         case LOADKX = 2

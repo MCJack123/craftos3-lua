@@ -1,5 +1,3 @@
-import Foundation
-
 public class LuaTable: Hashable {
     public static func == (lhs: LuaTable, rhs: LuaTable) -> Bool {
         return lhs === rhs
@@ -15,6 +13,7 @@ public class LuaTable: Hashable {
     private var array = [LuaValue]() // TODO: resize array part
 
     public var metatable: LuaTable? = nil
+    public var state: LuaState? = nil
     public var count: Int {
         var j = array.count
         if j > 0 && array.last == .nil {
@@ -44,7 +43,7 @@ public class LuaTable: Hashable {
                 }
             }
             while j - i > 1 {
-                let m = (i + j / 2)
+                let m = (i + j) / 2
                 if self[m] == .nil {
                     j = m
                 } else {
@@ -55,41 +54,70 @@ public class LuaTable: Hashable {
         }
     }
 
-    public init() {}
-
-    public init(hash: Int, array: Int) {
-        self.hash = [LuaValue: LuaValue](minimumCapacity: hash)
-        self.array = [LuaValue](repeating: .nil, count: array)
+    public init(state: LuaState? = nil) {
+        self.state = state
     }
 
-    public func load(library: LuaLibrary, name: String? = nil) {
-        let nam = name ?? library.name
-        hash[.string(.string(nam))] = .table(library.table)
+    public init(state: Lua) {
+        self.state = state.thread.luaState
+    }
+
+    public init(hash: Int, array: Int, state: LuaState? = nil) {
+        self.hash = [LuaValue: LuaValue](minimumCapacity: hash)
+        self.array = [LuaValue](repeating: .nil, count: array)
+        self.state = state
+    }
+
+    public init(hash: Int, array: Int, state: Lua) {
+        self.hash = [LuaValue: LuaValue](minimumCapacity: hash)
+        self.array = [LuaValue](repeating: .nil, count: array)
+        self.state = state.thread.luaState
+    }
+
+    private init(_ table: LuaTable) {
+        self.array = table.array
+        self.hash = table.hash
+        self.metatable = table.metatable
+        self.state = table.state
+    }
+
+    deinit {
+        if let state = state, let mt = metatable, case .function = mt["__gc"] {
+            state.tablesToBeFinalized.append(LuaTable(self))
+        }
     }
 
     public func next(key: LuaValue) -> LuaValue {
         if key == .nil {
-            if array.isEmpty {
-                if hash.isEmpty {
-                    return .nil
-                } else {
-                    return hash[hash.startIndex].key
+            if !array.isEmpty {
+                for i in 1...array.count {
+                    if array[i-1] != .nil {
+                        return .number(Double(i))
+                    }
                 }
-            } else {
-                return .number(1)
             }
-        } else if case let .number(n) = key, Foundation.floor(n) == n && n > 0 && Int(n) <= array.count {
-            if Int(n) == array.count {
-                if hash.isEmpty {
-                    return .nil
-                } else {
-                    return hash[hash.startIndex].key
-                }
+            if hash.isEmpty {
+                return .nil
             } else {
-                return .number(n + 1)
+                return hash[hash.startIndex].key
+            }
+        } else if case var .number(n) = key, Int(exactly: n) != nil && n > 0 && Int(n) <= array.count {
+            while true {
+                if Int(n) + 1 == array.count {
+                    if hash.isEmpty {
+                        return .nil
+                    } else {
+                        return hash[hash.startIndex].key
+                    }
+                } else if array[Int(n) + 1] != .nil {
+                    return .number(n + 1)
+                }
+                n += 1
             }
         } else if let idx = hash.index(forKey: key) {
-            return hash[hash.index(after: idx)].key
+            let next = hash.index(after: idx)
+            if next == hash.endIndex {return .nil}
+            return hash[next].key
         } else {
             return .nil // TODO: handle keys not in the table
         }
@@ -97,12 +125,12 @@ public class LuaTable: Hashable {
 
     public subscript(index: LuaValue) -> LuaValue {
         get {
-            if case let .number(n) = index, Foundation.floor(n) == n && n > 0 && Int(n) <= array.count {
+            if case let .number(n) = index, Int(exactly: n) != nil && n > 0 && Int(n) <= array.count {
                 return array[Int(n)-1]
             }
             return hash[index] ?? .nil
         } set (value) {
-            if case let .number(n) = index, Foundation.floor(n) == n && n > 0 && Int(n) <= array.count {
+            if case let .number(n) = index, Int(exactly: n) != nil && n > 0 && Int(n) <= array.count {
                 array[Int(n)-1] = value
             } else if value != .nil {
                 hash[index] = value

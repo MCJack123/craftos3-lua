@@ -1,9 +1,11 @@
+import Lua
+
 internal struct StringLibrary: LuaLibrary {
     public let name = "string"
 
     private static func index(string str: String, at index: Int) -> String.Index {
-        if index >= 1 {return str.index(str.startIndex, offsetBy: index - 1)}
-        else if index < 0 {return str.index(str.startIndex, offsetBy: str.count - index)}
+        if index >= 1 {return str.index(str.startIndex, offsetBy: index - 1, limitedBy: str.endIndex) ?? str.index(before: str.endIndex)}
+        else if index < 0 {return str.index(str.startIndex, offsetBy: str.count + index)}
         else {return str.startIndex}
     }
 
@@ -98,8 +100,9 @@ internal struct StringLibrary: LuaLibrary {
 
     public let sub = LuaSwiftFunction {state, args in
         let s = try args.checkString(at: 1)
-        let i = index(string: s, at: try args.checkInt(at: 2) - 1)
-        let j = index(string: s, at: try args.checkInt(at: 3, default: -1) - 1)
+        let i = index(string: s, at: try args.checkInt(at: 2))
+        let j = index(string: s, at: try args.checkInt(at: 3, default: -1))
+        if j < i {return [.string(.string(""))]}
         return [.string(.substring(s[i...j]))]
     }
 

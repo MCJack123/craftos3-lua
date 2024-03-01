@@ -1,0 +1,5 @@
+module Math {
+    header "shim.h"
+    link "m"
+    export *
+}

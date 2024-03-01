@@ -14,19 +14,29 @@ public class Lua {
         return LuaError.runtimeError(message: "bad argument #\(index) (expected \(type), got \(args[index].type))")
     }
 
-    public static func globalTable() -> LuaTable {
-        let _G = BaseLibrary().table
-        _G["_G"] = .table(_G)
-        _G["_VERSION"] = .string(.string("Lua 5.2"))
-        _G["bit32"] = .table(Bit32Library().table)
-        _G["coroutine"] = .table(CoroutineLibrary().table)
-        _G["math"] = .table(MathLibrary().table)
-        _G["string"] = .table(StringLibrary().table)
-        _G["table"] = .table(TableLibrary().table)
-        return _G
+    public static func error(in thread: LuaThread, message text: String, at level: Int = 0) -> LuaError {
+        let idx = thread.callStack.count - level - 1
+        if idx >= 0 && idx < thread.callStack.count {
+            let ci = thread.callStack[idx]
+            if case let .lua(cl) = ci.function, ci.savedpc < cl.proto.lineinfo.count {
+                return LuaError.runtimeError(message: "\(cl.proto.name):\(cl.proto.lineinfo[ci.savedpc]): \(text)")
+            }
+        }
+        return LuaError.runtimeError(message: text)
+    }
+
+    public static func error(in state: Lua, message text: String, at level: Int = 1) -> LuaError {
+        return error(in: state.thread, message: text, at: level)
     }
 
     public let thread: LuaThread
+    public var globalTable: LuaTable {
+        get {
+            return thread.luaState.globalTable
+        } set (value) {
+            thread.luaState.globalTable = value
+        }
+    }
 
     internal init(in thread: LuaThread) {
         self.thread = thread

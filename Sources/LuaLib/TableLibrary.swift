@@ -1,3 +1,5 @@
+import Lua
+
 internal struct TableLibrary: LuaLibrary {
     public let name = "table"
 
@@ -38,9 +40,11 @@ internal struct TableLibrary: LuaLibrary {
     }
 
     public let pack = LuaSwiftFunction {state, args in
-        let t = LuaTable()
-        for i in 1...args.count {
-            t[.number(Double(i))] = args[i]
+        let t = LuaTable(state: state)
+        if args.count > 0 {
+            for i in 1...args.count {
+                t[.number(Double(i))] = args[i]
+            }
         }
         t[.string(.string("n"))] = .number(Double(args.count))
         return [.table(t)]
@@ -53,8 +57,10 @@ internal struct TableLibrary: LuaLibrary {
         let i = try args.checkInt(at: 2, default: 1)
         let j = try args.checkInt(at: 3, default: t.count)
         var res = [LuaValue]()
-        for n in i...j {
-            res.append(t[.number(Double(n))])
+        if j >= i {
+            for n in i...j {
+                res.append(t[.number(Double(n))])
+            }
         }
         return res
     }

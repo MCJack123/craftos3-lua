@@ -43,6 +43,9 @@ public class LuaThread: Hashable {
         if state.currentThread == nil {
             throw CoroutineError.noCoroutine
         }
+        if state.currentThread.state != .running {
+            throw CoroutineError.noCoroutine
+        }
         unowned let coro = state.currentThread
         coro!.state = .suspended
         return try await withCheckedThrowingContinuation {continuation in
@@ -52,13 +55,17 @@ public class LuaThread: Hashable {
         }
     }
 
+    public static func yield(in state: Lua, with args: [LuaValue] = [LuaValue]()) async throws -> [LuaValue] {
+        return try await yield(in: state.thread.luaState, with: args)
+    }
+
     private var task: Task<Void, Error>!
     private var continuation: CheckedContinuation<[LuaValue], Error>!
     internal var callStack = [CallInfo]()
     internal var luaState: LuaState
     
     /// The current state of the coroutine.
-    private(set) var state: State = .suspended
+    public private(set) var state: State = .suspended
 
     /// Creates a new coroutine around a Lua function.
     /// 
@@ -81,6 +88,10 @@ public class LuaThread: Hashable {
         while continuation == nil {await Task.yield()}
     }
 
+    convenience public init(in L: Lua, for body: LuaFunction) async {
+        await self.init(in: L.thread.luaState, for: body)
+    }
+
     /// Creates a new coroutine around a closure which takes no arguments and returns no values.
     /// 
     /// - Parameter body: The main function of the coroutine.
@@ -100,6 +111,10 @@ public class LuaThread: Hashable {
             }
         }
         while continuation == nil {await Task.yield()}
+    }
+
+    convenience public init(in L: Lua, for body: @escaping () async throws -> ()) async {
+        await self.init(in: L.thread.luaState, for: body)
     }
 
     internal init(in L: LuaState) {
@@ -138,5 +153,9 @@ public class LuaThread: Hashable {
         state.currentThread = old
         old?.state = .running
         return res
+    }
+
+    public func resume(in state: Lua, with args: [LuaValue] = [LuaValue]()) async throws -> [LuaValue] {
+        return try await resume(in: state.thread.luaState, with: args)
     }
 }

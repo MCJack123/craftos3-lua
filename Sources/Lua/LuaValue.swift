@@ -47,6 +47,65 @@ public enum LuaValue: Hashable {
         }
     }
 
+    public func metatable(in state: Lua) -> LuaTable? {
+        return metatable(in: state.thread.luaState)
+    }
+
+    public func index(_ index: LuaValue, in state: LuaThread) async throws -> LuaValue {
+        switch self {
+            case .table(let tbl):
+                let v = tbl[index]
+                if v != .nil {
+                    return v
+                }
+            default: break
+        }
+        if let mt = metatable(in: state.luaState)?[.Constants.__index] {
+            switch mt {
+                case .table: return try await mt.index(index, in: state)
+                case .function(let fn):
+                    let res = try await fn.call(in: state, with: [self, index])
+                    return res.first ?? .nil
+                default: break
+            }
+        }
+        switch self {
+            case .table: return .nil
+            default: throw Lua.error(in: state, message: "attempt to index a \(self.type) value")
+        }
+    }
+
+    public func index(_ index: LuaValue, in state: Lua) async throws -> LuaValue {
+        return try await self.index(index, in: state.thread)
+    }
+
+    public func index(_ index: LuaValue, value: LuaValue, in state: LuaThread) async throws {
+        switch self {
+            case .table(let tbl):
+                if tbl[index] != .nil {
+                    tbl[index] = value
+                    return
+                }
+            default: break
+        }
+        if let mt = metatable(in: state.luaState)?[.Constants.__newindex] {
+            switch mt {
+                case .function(let fn):
+                    _ = try await fn.call(in: state, with: [self, index, value])
+                    return
+                default: break
+            }
+        }
+        switch self {
+            case .table(let tbl): tbl[index] = value
+            default: throw Lua.error(in: state, message: "attempt to index a \(self.type) value")
+        }
+    }
+
+    public func index(_ index: LuaValue, value: LuaValue, in state: Lua) async throws {
+        return try await self.index(index, value: value, in: state.thread)
+    }
+
     public var type: String {
         switch self {
             case .nil: return "nil"
@@ -84,7 +143,7 @@ public enum LuaValue: Hashable {
     public var toNumber: Double? {
         switch self {
             case .number(let val): return val
-            case .string(let val): return Double(val.string)
+            case .string(let val): return Double(val.string.replacing(try! Regex("^\\s+"), with: ""))
             default: return nil
         }
     }

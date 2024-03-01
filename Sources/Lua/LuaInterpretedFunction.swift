@@ -38,7 +38,7 @@ private enum DumpValue {
                 buf.storeBytes(of: val, toByteOffset: pos, as: UInt8.self)
                 return pos + 1
             case .int(let val):
-                buf.storeBytes(of: val, toByteOffset: pos, as: Int32.self)
+                buf.storeBytes(of: val.littleEndian, toByteOffset: pos, as: Int32.self)
                 return pos + 4
             case .instruction(let val):
                 buf.storeBytes(of: val.encoded, toByteOffset: pos, as: UInt32.self)
@@ -47,10 +47,15 @@ private enum DumpValue {
                 buf.storeBytes(of: val, toByteOffset: pos, as: Double.self)
                 return pos + 8
             case .string(let val):
-                let size = UInt32(val.count)
+                let size = UInt32(val.count + 1).littleEndian
                 buf.storeBytes(of: size, toByteOffset: pos, as: UInt32.self)
-                UnsafeMutableRawBufferPointer(rebasing: buf[(pos+4)...(pos+4+Int(size))]).copyBytes(from: val.cString(using: .isoLatin1)!.map {UInt8($0)})
-                return pos + Int(size) + 5
+                let s = val.map {c in
+                    let ord = c.unicodeScalars.first!.value
+                    if ord > 256 {return UInt8(63)}
+                    else {return UInt8(ord)}
+                }
+                UnsafeMutableRawBufferPointer(rebasing: buf[(pos+4)..<(pos+4+Int(size))]).copyBytes(from: s)
+                return pos + Int(size) + 4
         }
     }
 }
@@ -71,6 +76,34 @@ public class LuaInterpretedFunction: Hashable {
 
     public enum DecodeError: Error {
         case invalidBytecode
+    }
+
+    public init(
+        opcodes: [LuaOpcode],
+        constants: [LuaValue],
+        prototypes: [LuaInterpretedFunction],
+        upvalues: [(UInt8, UInt8, String?)],
+        stackSize: UInt8,
+        numParams: UInt8,
+        isVararg: UInt8,
+        name: String,
+        lineDefined: Int32,
+        lastLineDefined: Int32,
+        lineinfo: [Int32],
+        locals: [(String, Int32, Int32)]
+    ) {
+        self.opcodes = opcodes
+        self.constants = constants
+        self.prototypes = prototypes
+        self.upvalues = upvalues
+        self.stackSize = stackSize
+        self.numParams = numParams
+        self.isVararg = isVararg
+        self.name = name
+        self.lineDefined = lineDefined
+        self.lastLineDefined = lastLineDefined
+        self.lineinfo = lineinfo
+        self.locals = locals
     }
 
     public convenience init(decoding data: UnsafeRawBufferPointer) throws {
@@ -142,7 +175,7 @@ public class LuaInterpretedFunction: Hashable {
     }
 
     public func dump() -> [UInt8] {
-        var output = [0x1B, 0x4C, 0x75, 0x61, 0x51, 0x00, 0x01, 0x04, 0x04, 0x04, 0x08, 0x00, 0x19, 0x93, 0x0D, 0x0A, 0x1A, 0x0A].map {DumpValue.byte($0)}
+        var output = [0x1B, 0x4C, 0x75, 0x61, 0x52, 0x00, 0x01, 0x04, 0x04, 0x04, 0x08, 0x00, 0x19, 0x93, 0x0D, 0x0A, 0x1A, 0x0A].map {DumpValue.byte($0)}
         output.append(contentsOf: dumpFunction())
         var size = 0
         for v in output {size += v.size}

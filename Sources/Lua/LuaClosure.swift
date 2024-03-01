@@ -1,6 +1,6 @@
 public class LuaClosure: Hashable {
-    internal let upvalues: [LuaUpvalue]
-    internal let proto: LuaInterpretedFunction
+    public let upvalues: [LuaUpvalue]
+    public let proto: LuaInterpretedFunction
     public var environment: LuaTable
 
     public init(for fn: LuaInterpretedFunction, with upval: [LuaUpvalue], environment env: LuaTable) {

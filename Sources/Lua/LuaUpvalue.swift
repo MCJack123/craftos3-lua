@@ -30,6 +30,10 @@ public class LuaUpvalue {
         }
     }
 
+    internal func `in`(stack ci: CallInfo, at pos: Int) -> Bool {
+        return stack === ci && index == pos
+    }
+
     internal func close() {
         if let stack = stack {
             _value = stack.stack[index!]

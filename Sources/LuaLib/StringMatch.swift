@@ -1,3 +1,5 @@
+import Lua
+
 private struct StringPointer: Comparable {
     var string: String
     var index: String.Index
@@ -74,11 +76,10 @@ internal class StringMatch {
     }
 
     private func check_capture(_ l: Int) throws -> Int {
-        let l = l - 0x31
-        if l < 0 || l >= captures.count || captures[l].1 == StringMatch.CAP_UNFINISHED {
-            throw Lua.LuaError.runtimeError(message: "invalid capture index %\(l + 1)")
+        if l < 1 || l > captures.count || captures[l-1].1 == StringMatch.CAP_UNFINISHED {
+            throw Lua.LuaError.runtimeError(message: "invalid capture index %\(l)")
         }
-        return l
+        return l - 1
     }
 
     private func capture_to_close() throws -> Int {
@@ -371,7 +372,7 @@ internal class StringMatch {
             let l = captures[i].1
             if l == StringMatch.CAP_UNFINISHED {
                 throw Lua.LuaError.runtimeError(message: "unfinished capture")
-            } else if l == StringMatch.CAP_UNFINISHED {
+            } else if l == StringMatch.CAP_POSITION {
                 return .number(Double(captures[i].0.string.distance(from: src.startIndex, to: captures[i].0.index) + 1))
             } else {
                 let c = captures[i].0

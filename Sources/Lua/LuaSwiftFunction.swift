@@ -5,6 +5,8 @@ public class LuaSwiftFunction: Hashable {
         body = fn
     }
 
+    public static let empty = LuaSwiftFunction {_, _ in []}
+
     public static func == (lhs: LuaSwiftFunction, rhs: LuaSwiftFunction) -> Bool {
         return lhs === rhs
     }

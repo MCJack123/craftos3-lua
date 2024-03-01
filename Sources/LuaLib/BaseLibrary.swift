@@ -1,3 +1,5 @@
+import Lua
+
 internal struct BaseLibrary: LuaLibrary {
     public let name = "base"
 
@@ -5,25 +7,35 @@ internal struct BaseLibrary: LuaLibrary {
 
     public let assert = LuaSwiftFunction {state, args in
         if !args[1].toBool {
-            throw Lua.LuaError.luaError(message: args[2].orElse(.string(.string("assertion failed!"))))
+            let msg = args[2].orElse(.string(.string("assertion failed!")))
+            if case let .string(.string(s)) = msg {
+                throw Lua.error(in: state, message: s)
+            }
+            throw Lua.LuaError.luaError(message: msg)
         }
         return [args[1]]
     }
 
     public let error = LuaSwiftFunction {state, args in
-        // TODO: insert level
+        if case let .string(.string(s)) = args[1] {
+            throw Lua.error(in: state, message: s, at: try args.checkInt(at: 2, default: 1))
+        }
         throw Lua.LuaError.luaError(message: args[1])
     }
 
     public let getmetatable = LuaSwiftFunction {state, args in
         if case let .table(tab) = args[1] {
             if let mt = tab.metatable {
+                let mmt = mt["__metatable"]
+                if mmt != .nil {
+                    return [mmt]
+                }
                 return [.table(mt)]
             } else {
                 return [.nil]
             }
         }
-        throw Lua.argumentError(at: 1, in: args, expected: "table")
+        return [.nil]
     }
 
     public let ipairs = LuaSwiftFunction {state, args in
@@ -31,7 +43,7 @@ internal struct BaseLibrary: LuaLibrary {
             return [
                 .function(.swift(LuaSwiftFunction {_state, _args in
                     if case let .number(i) = _args[2] {
-                        let v = try await LuaVM.index(table: .table(tab), index: .number(i+1), state: _state.thread)
+                        let v = try await args[1].index(.number(i+1), in: _state)
                         if v == .nil {
                             return []
                         }
@@ -49,15 +61,41 @@ internal struct BaseLibrary: LuaLibrary {
 
     public let load = LuaSwiftFunction {state, args in
         let chunk = try args.checkString(at: 1)
-        let defaultEnv: LuaTable
-        switch state.thread.callStack.last!.function {
-            case .lua(let cl): defaultEnv = cl.environment
-            case .swift: defaultEnv = LuaTable()
+        let name = args[2] != .nil ? try args.checkString(at: 2) : nil
+        let modestr = try args.checkString(at: 3, default: "bt")
+        let env = try args.checkTable(at: 4, default: state.globalTable)
+        let mode: LuaLoad.LoadMode
+        switch modestr {
+            case "b": mode = .binary
+            case "t": mode = .text
+            case "bt", "tb": mode = .any
+            default: throw Lua.error(in: state, message: "bad argument #3 (invalid mode)")
         }
-        let env = try args.checkTable(at: 4, default: defaultEnv)
-        return try chunk.withContiguousStorageIfAvailable {_chunk in
-            return [LuaValue.function(.lua(LuaClosure(for: try LuaInterpretedFunction(decoding: UnsafeRawBufferPointer(_chunk)), with: [], environment: env)))]
-        } ?? []
+        do {
+            return [.function(.lua(try await LuaLoad.load(from: chunk, named: name, mode: mode, environment: env)))]
+        } catch let error as LuaParser.Error {
+            switch error {
+                case .syntaxError(let message, let token):
+                    return [.nil, .string(.string("\(name ?? "?"):\(token?.line ?? 0): \(message) near '\(token?.text ?? "<eof>")'"))]
+                case .gotoError(let message):
+                    return [.nil, .string(.string(message))]
+                case .codeError(let message):
+                    return [.nil, .string(.string(message))]
+            }
+        } catch let error as Lua.LuaError {
+            switch error {
+                case .runtimeError(let message):
+                    return [.nil, .string(.string(message))]
+                case .luaError(let message):
+                    return [.nil, message]
+                case .vmError:
+                    return [.nil, .string(.string("vm error"))]
+                default:
+                    return [.nil, .string(.string(error.localizedDescription))]
+            }
+        } catch let error {
+            return [.nil, .string(.string(error.localizedDescription))]
+        }
     }
 
     public let next = LuaSwiftFunction {state, args in
@@ -139,13 +177,22 @@ internal struct BaseLibrary: LuaLibrary {
         let tab = try args.checkTable(at: 1)
         switch args[2] {
             case .nil: tab.metatable = nil
-            case .table(let mt): tab.metatable = mt
+            case .table(let mt):
+                if let curmt = tab.metatable {
+                    if curmt["__metatable"] != .nil {
+                        throw Lua.error(in: state, message: "cannot set metatable")
+                    }
+                }
+                tab.metatable = mt
             default: throw Lua.argumentError(at: 2, in: args, expected: "table")
         }
-        return []
+        return [.table(tab)]
     }
 
     public let tonumber = LuaSwiftFunction {state, args in
+        if args.count < 1 {
+            throw Lua.error(in: state, message: "bad argument #1 (value expected)")
+        }
         switch args[1] {
             case .number: return [args[1]]
             case .string(let s):
@@ -165,8 +212,12 @@ internal struct BaseLibrary: LuaLibrary {
     }
 
     public let tostring = LuaSwiftFunction {state, args in
-        if let mt = args[1].metatable(in: state.thread.luaState)?["__tostring"], case let .function(fn) = mt {
-            return try await fn.call(in: state.thread, with: args)
+        if args.count < 1 {
+            throw Lua.error(in: state, message: "bad argument #1 (value expected)")
+        }
+        if let mt = args[1].metatable(in: state)?["__tostring"], case let .function(fn) = mt {
+            let vals = try await fn.call(in: state.thread, with: [args[1]])
+            return [vals.first ?? .nil]
         }
         return [.string(.string(args[1].toString))]
     }
