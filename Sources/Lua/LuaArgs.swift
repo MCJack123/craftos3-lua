@@ -166,7 +166,7 @@ public struct LuaArgs {
         throw Lua.argumentError(at: index, for: val, expected: "userdata")
     }
 
-    public func checkUserdata<T>(at index: Int, with type: T.Type, default defaultValue: T? = nil) throws -> T {
+    public func checkUserdata<T>(at index: Int, as type: T.Type, default defaultValue: T? = nil) throws -> T {
         var val = LuaValue.nil
         if index <= args.count {
             val = args[index-1]

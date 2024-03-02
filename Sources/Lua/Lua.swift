@@ -43,5 +43,5 @@ public class Lua {
     }
 }
 
-@attached(member)
+@attached(member, names: arbitrary)
 public macro LuaObject() = #externalMacro(module: "LuaMacros", type: "LuaObjectMacro")

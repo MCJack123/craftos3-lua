@@ -58,3 +58,65 @@ final class LuaTests: XCTestCase {
     func testVararg() async throws {try await doTest(named: "vararg.lua")}
     func testVerybig() async throws {try await doTest(named: "verybig.lua")}
 }
+
+@LuaObject
+public class TestObject {
+    public func testNoArgs() {
+        
+    }
+    
+    public func testOneArg(_ a: Int) {
+        
+    }
+    
+    public func testOneNamedArg(a: Int) {
+        
+    }
+    
+    public func testOneOptionalArg(_ opt: Int?) {
+        
+    }
+    
+    public func testNoArgsReturn() -> String {
+        return ""
+    }
+    
+    public func testTwoArgsReturn(_ a: LuaTable, _ b: LuaValue) -> LuaValue {
+        return a[b]
+    }
+    
+    public func testOptionalReturn() -> String? {
+        return nil
+    }
+    
+    public func testTupleReturn() -> (Int, Int) {
+        return (51, 19)
+    }
+    
+    public func testWithState(state: Lua) {
+        
+    }
+    
+    public func testWithStateAndTwoArgs(_ state: Lua, a: Int, b: Double) -> Double {
+        return Double(a) * b
+    }
+    
+    public func testVararg(_ args: LuaArgs) {
+        
+    }
+    
+    public func testVarargWithState(_ state: Lua, _ args: LuaArgs) -> [LuaValue] {
+        return args.args
+    }
+    
+    public func testThrows(state: Lua, a: LuaValue) throws -> LuaTable {
+        guard case let .table(t) = a else {
+            throw Lua.error(in: state, message: "not a table")
+        }
+        return t
+    }
+    
+    public func testYields(state: Lua, _ t: LuaThread) async throws -> [LuaValue] {
+        return try await t.resume(in: state)
+    }
+}

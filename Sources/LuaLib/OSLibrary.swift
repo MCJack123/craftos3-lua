@@ -42,6 +42,7 @@ internal class OSLibrary: LuaLibrary {
                     return [.nil, .string(.string("exit")), .number(Double(process.terminationStatus))]
                 case .uncaughtSignal:
                     return [.nil, .string(.string("signal")), .number(Double(process.terminationStatus))]
+                @unknown default: return [.nil]
             }
         }
         return [.nil, .string(.string("exit")), .number(127)]
@@ -96,7 +97,7 @@ internal class OSLibrary: LuaLibrary {
             return []
         }
         #if !(os(Linux) || os(Windows))
-        if #available(macOS 13, iOS 16, tvOS 16, watchOS 9, *) {
+        /*if #available(macOS 13, iOS 16, tvOS 16, watchOS 9, *) {
             let components = Locale.Components(locale: locale)
             switch category {
                 case "collate":
@@ -125,7 +126,7 @@ internal class OSLibrary: LuaLibrary {
                 default: throw Lua.error(in: state, message: "bad argument #2 (invalid category)")
             }
             return []
-        }
+        }*/
         #endif
         // ?
         return []
@@ -161,11 +162,15 @@ internal class OSLibrary: LuaLibrary {
             //date.timeZone = t["isdst"].toBool ? TimeZone(secondsFromGMT: TimeZone.current.) : .current
             return [.number(Double(Calendar.current.date(from: date)?.timeIntervalSince1970 ?? 0))]
         }
-        return [.number(Double(Date.now.timeIntervalSince1970))]
+        return [.number(Double(Date().timeIntervalSince1970))]
     }
 
     public let tmpname = LuaSwiftFunction {state, args in
+        #if os(Windows) || os(Linux)
         return [.string(.string(String(cString: Foundation.tmpnam(UnsafeMutablePointer<CChar>(bitPattern: 0)))))]
+        #else
+        return [.string(.string(""))]
+        #endif
     }
 
     public init() {

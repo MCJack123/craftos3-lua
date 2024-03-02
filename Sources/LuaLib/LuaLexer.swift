@@ -227,7 +227,12 @@ internal struct LuaLexer {
                         case "linecomment", "blockcomment", "emptyblockcomment", "whitespace", "invalid":
                             found = false
                         case "blockquote", "emptyblockquote":
-                            current = .string(s.replacing(try! Regex("^\\[=*\\["), with: "").replacing(try! Regex("\\]=*\\]$"), with: ""), line: line)
+                            var sub = s[s.index(after: s.startIndex)..<s.index(before: s.endIndex)]
+                            while s.first == "=" {
+                                sub = sub[sub.index(after: sub.startIndex)..<sub.index(before: sub.endIndex)]
+                            }
+                            sub = sub[sub.index(after: sub.startIndex)..<sub.index(before: sub.endIndex)]
+                            current = .string(String(sub), line: line)
                         case "squote", "dquote":
                             current = .string(String(s[s.index(after: s.startIndex)..<s.index(before: s.endIndex)]), line: line)
                         default: assert(false); throw Lua.LuaError.internalError
@@ -238,7 +243,7 @@ internal struct LuaLexer {
                         col += s.count
                     } else {
                         line += nl
-                        col = s.firstMatch(of: try! Regex("[^\n]*$"))?.count ?? 0
+                        //col = s.firstMatch(of: try! Regex("[^\n]*$"))?.count ?? 0
                     }
                     break
                 }

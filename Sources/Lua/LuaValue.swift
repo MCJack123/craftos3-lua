@@ -228,7 +228,7 @@ public enum LuaValue: Hashable {
         throw Lua.argumentError(at: index, for: self, expected: "userdata")
     }
 
-    public func checkUserdata<T>(at index: Int, with type: T.Type, default defaultValue: T? = nil) throws -> T {
+    public func checkUserdata<T>(at index: Int, as type: T.Type, default defaultValue: T? = nil) throws -> T {
         if defaultValue != nil && self == .nil {
             return defaultValue!
         }

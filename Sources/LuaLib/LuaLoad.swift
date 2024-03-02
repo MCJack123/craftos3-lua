@@ -15,7 +15,10 @@ public class LuaLoad {
             return res
         } else {
             var called = false
-            let source = source.replacing(try! Regex("^#[^\n]*\n"), with: "")
+            var source = source
+            if source.hasPrefix("#") {
+                source = String(source[source.index(after: source.firstIndex(of: "\n") ?? source.index(before: source.endIndex))...])
+            }
             return try await load(using: {if !called {called = true; return source} else {return nil}}, named: name ?? "[string '\(source[source.startIndex..<(source.index(source.startIndex, offsetBy: 30, limitedBy: source.endIndex) ?? source.endIndex)])']", mode: mode, environment: env)
         }
     }

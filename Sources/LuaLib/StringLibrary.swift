@@ -30,13 +30,15 @@ internal struct StringLibrary: LuaLibrary {
                 return [.string(.string(String(dump.map {Character(Unicode.Scalar(UInt32($0))!)})))]
         }
     }
+    
+    private static let magicCharacters = Set<Character>(["^", "$", "*", "+", "-", "?", ".", "(", ")", "[", "]", "%"])
 
     public let find = LuaSwiftFunction {state, args in
         let str = try args.checkString(at: 1)
         let pat = try args.checkString(at: 2)
         let idx = try args.checkInt(at: 3, default: 1)
-        if args[4].toBool || !pat.contains(try! Regex("[\\^\\$\\*\\+\\?\\.\\(\\[%\\-]")) {
-            if let range = str.firstRange(of: pat) {
+        if args[4].toBool || !pat.contains(where: {StringLibrary.magicCharacters.contains($0)}) {
+            if let range = str.range(of: pat) {
                 return [
                     .number(Double(str.distance(from: str.startIndex, to: range.lowerBound) + 1)),
                     .number(Double(str.distance(from: str.startIndex, to: range.upperBound) + 1)),
