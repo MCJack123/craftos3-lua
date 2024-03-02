@@ -42,3 +42,6 @@ public class Lua {
         self.thread = thread
     }
 }
+
+@attached(member)
+public macro LuaObject() = #externalMacro(module: "LuaMacros", type: "LuaObjectMacro")
