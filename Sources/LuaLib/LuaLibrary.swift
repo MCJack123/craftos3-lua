@@ -34,6 +34,9 @@ public extension LuaState {
         _G["os"] = .table(OSLibrary().table)
         _G["string"] = .table(StringLibrary().table)
         _G["table"] = .table(TableLibrary().table)
+        self.stringMetatable = LuaTable(from: [
+            .string(.string("__index")): _G["string"]
+        ])
         self.globalTable = _G
     }
 }

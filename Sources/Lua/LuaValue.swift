@@ -8,6 +8,10 @@ public enum LuaValue: Hashable {
     case thread(LuaThread)
     case table(LuaTable)
 
+    public static func object(_ obj: LuaObject) -> LuaValue {
+        return .userdata(obj.userdata)
+    }
+
     internal struct Constants {
         internal static let `true` = LuaValue.boolean(true)
         internal static let `false` = LuaValue.boolean(false)
@@ -130,9 +134,9 @@ public enum LuaValue: Hashable {
                     case .lua(let cl): return "function: \(String(UInt(bitPattern: Unmanaged.passUnretained(cl).toOpaque()), radix: 16))"
                     case .swift(let cl): return "function: \(String(UInt(bitPattern: Unmanaged.passUnretained(cl).toOpaque()), radix: 16))"
                 }
-            case .userdata(let val): return "userdata: \(String(UInt(bitPattern: Unmanaged.passUnretained(val).toOpaque()), radix: 16))"
+            case .userdata(let val): return "\((try? val.metatable?["__name"].checkString(at: 0)) ?? "userdata"): \(String(UInt(bitPattern: Unmanaged.passUnretained(val).toOpaque()), radix: 16))"
             case .thread(let val): return "thread: \(String(UInt(bitPattern: Unmanaged.passUnretained(val).toOpaque()), radix: 16))"
-            case .table(let val): return "table: \(String(UInt(bitPattern: Unmanaged.passUnretained(val).toOpaque()), radix: 16))"
+            case .table(let val): return "\((try? val.metatable?["__name"].checkString(at: 0)) ?? "table"): \(String(UInt(bitPattern: Unmanaged.passUnretained(val).toOpaque()), radix: 16))"
         }
     }
 

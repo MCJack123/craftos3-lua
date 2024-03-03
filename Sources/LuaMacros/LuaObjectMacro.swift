@@ -67,7 +67,7 @@ private func convert(typeForReturnValue type: TypeSyntax, context: some MacroExp
         for (i, t) in typ.elements.enumerated() {
             if let typ = t.type.as(OptionalTypeSyntax.self) {
                 if let typ = typ.as(IdentifierTypeSyntax.self) {
-                    switch typ.name.text.replacingOccurrences(of: ",", with: "") {
+                    switch typ.name.text {
                         case "LuaValue":
                             items.append(ArrayElementSyntax(expression: ExprSyntax("res.\(raw: i) ?? .nil, ")))
                         case "Bool":
@@ -95,7 +95,7 @@ private func convert(typeForReturnValue type: TypeSyntax, context: some MacroExp
                     throw e
                 }
             } else if let typ = t.type.as(IdentifierTypeSyntax.self) {
-                switch typ.name.text.replacingOccurrences(of: ",", with: "") {
+                switch typ.name.text {
                     case "LuaValue":
                         items.append(ArrayElementSyntax(expression: ExprSyntax("res.\(raw: i), ")))
                     case "Bool":
@@ -187,7 +187,32 @@ private func convert(typeForReturnValue type: TypeSyntax, context: some MacroExp
     throw e
 }
 
-public struct LuaObjectMacro: MemberMacro {
+public struct LuaObjectMacro: MemberMacro, ExtensionMacro {
+    public static func expansion(
+        of node: AttributeSyntax,
+        attachedTo declaration: some DeclGroupSyntax,
+        providingExtensionsOf type: some TypeSyntaxProtocol,
+        conformingTo protocols: [TypeSyntax],
+        in context: some MacroExpansionContext
+    ) throws -> [ExtensionDeclSyntax] {
+        if protocols.isEmpty {
+            return []
+        }
+
+        let sendableExtension: DeclSyntax =
+            """
+            extension \(type.trimmed): LuaObject {
+                public var userdata: LuaUserdata {return LuaUserdata(for: self, with: \(type.trimmed).metatable)}
+            }
+            """
+
+        guard let extensionDecl = sendableExtension.as(ExtensionDeclSyntax.self) else {
+            return []
+        }
+
+        return [extensionDecl]
+    }
+
     public static func expansion(of node: AttributeSyntax, providingMembersOf declaration: some DeclGroupSyntax, in context: some MacroExpansionContext) throws -> [DeclSyntax] {
         let cname: String
         if let c = declaration.as(ActorDeclSyntax.self) {
@@ -201,10 +226,11 @@ public struct LuaObjectMacro: MemberMacro {
         } else {
             throw LuaMacroError.declarationError
         }
+        var metatable = ""
         let funcs = declaration.memberBlock.members
             .compactMap {$0.decl.as(FunctionDeclSyntax.self)}
             .filter {$0.modifiers.contains {$0.name.text == "public"}}
-        let methods: [DeclSyntax] = try funcs
+        var retval: [DeclSyntax] = try funcs
             .filter {!$0.modifiers.contains {$0.name.text == "static"}}
             .map {(fn) -> DeclSyntax in
                 var params = [FunctionParameterSyntax](fn.signature.parameterClause.parameters)
@@ -215,7 +241,7 @@ public struct LuaObjectMacro: MemberMacro {
                     params.removeFirst()
                 }
                 if params.first?.type.as(IdentifierTypeSyntax.self)?.name.text == "LuaArgs" {
-                    call += (params.first!.firstName.text == "_" ? "" : params.first!.firstName.text + ": ") + "args, "
+                    call += (params.first!.firstName.text == "_" ? "" : params.first!.firstName.text + ": ") + "LuaArgs([LuaValue](args.args[1...])), "
                 } else {
                     for (i, param) in params.enumerated() {
                         argcheck.append(try convert(type: param.type, atParameter: i + 2, defaultValue: param.defaultValue, context: context))
@@ -230,9 +256,12 @@ public struct LuaObjectMacro: MemberMacro {
                     call = "try " + call
                 }
                 call += ")"
+                metatable += """
+                    case \"\(fn.name.text)\": return [.function(.swift(\(cname)._\(fn.name.text)))]
+                    """
                 if let ret = fn.signature.returnClause {
                     return """
-                    let _\(raw: fn.name.text) = LuaSwiftFunction {state, args in
+                    static let _\(raw: fn.name.text) = LuaSwiftFunction {state, args in
                         let _self = try args.checkUserdata(at: 1, as: \(raw: cname).self)
                         \(CodeBlockItemListSyntax(argcheck.map {CodeBlockItemSyntax(item: .stmt($0))}))
                         let res = \(raw: call)
@@ -241,7 +270,7 @@ public struct LuaObjectMacro: MemberMacro {
                     """
                 }
                 return """
-                let _\(raw: fn.name.text) = LuaSwiftFunction {state, args in
+                static let _\(raw: fn.name.text) = LuaSwiftFunction {state, args in
                     let _self = try args.checkUserdata(at: 1, as: \(raw: cname).self)
                     \(CodeBlockItemListSyntax(argcheck.map {CodeBlockItemSyntax(item: .stmt($0))}))
                     \(raw: call)
@@ -249,6 +278,35 @@ public struct LuaObjectMacro: MemberMacro {
                 }
                 """
             }
-        return methods
+        var index = "return [.nil]"
+        if !declaration.memberBlock.members
+            .compactMap({$0.decl.as(SubscriptDeclSyntax.self)})
+            .filter({
+                $0.modifiers.contains {$0.name.text == "public"} &&
+                $0.parameterClause.parameters.count == 1 &&
+                $0.parameterClause.parameters.first!.type.as(IdentifierTypeSyntax.self)?.name.text == "LuaValue" &&
+                $0.returnClause.type.as(IdentifierTypeSyntax.self)?.name.text == "LuaValue"})
+            .isEmpty {
+            index = "return [_self[args[2]]]"
+        }
+            
+        retval.append(contentsOf: [
+            """
+            static let metatable = LuaTable(from: [
+                .string(.string("__index")): .function(.swift(LuaSwiftFunction {state, args in
+                    let _self = try args.checkUserdata(at: 1, as: \(raw: cname).self)
+                    if case let .string(.string(idx)) = args[2] {
+                        switch idx {
+                            \(raw: metatable)
+                            default: \(raw: index)
+                        }
+                    }
+                    \(raw: index)
+                })),
+                .string(.string("__name")): .string(.string("\(raw: cname)"))
+            ])
+            """
+        ])
+        return retval
     }
 }

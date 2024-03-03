@@ -63,7 +63,7 @@ internal struct BaseLibrary: LuaLibrary {
         let chunk = try args.checkString(at: 1)
         let name = args[2] != .nil ? try args.checkString(at: 2) : nil
         let modestr = try args.checkString(at: 3, default: "bt")
-        let env = try args.checkTable(at: 4, default: state.globalTable)
+        let env = try args.checkTable(at: 4, default: state.state.globalTable)
         let mode: LuaLoad.LoadMode
         switch modestr {
             case "b": mode = .binary

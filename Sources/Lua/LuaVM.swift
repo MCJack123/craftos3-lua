@@ -8,7 +8,7 @@ extension Array {
 
 internal class LuaVM {
     internal static func execute(closure: LuaClosure, with args: [LuaValue], numResults: Int, state: LuaThread) async throws -> [LuaValue] {
-        print("Starting interpreter with args", args)
+        //print("Starting interpreter with args", args)
         var ci = CallInfo(for: .lua(closure), numResults: numResults, stackSize: Int(closure.proto.stackSize))
         var newargs = args
         if newargs.count < closure.proto.numParams {

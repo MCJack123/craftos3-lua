@@ -30,12 +30,8 @@ public class Lua {
     }
 
     public let thread: LuaThread
-    public var globalTable: LuaTable {
-        get {
-            return thread.luaState.globalTable
-        } set (value) {
-            thread.luaState.globalTable = value
-        }
+    public var state: LuaState {
+        return thread.luaState
     }
 
     internal init(in thread: LuaThread) {
@@ -44,4 +40,9 @@ public class Lua {
 }
 
 @attached(member, names: arbitrary)
+@attached(extension, conformances: LuaObject, names: named(userdata))
 public macro LuaObject() = #externalMacro(module: "LuaMacros", type: "LuaObjectMacro")
+
+public protocol LuaObject {
+    var userdata: LuaUserdata {get}
+}

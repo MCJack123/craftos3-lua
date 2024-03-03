@@ -57,6 +57,38 @@ final class LuaTests: XCTestCase {
     func testStrings() async throws {try await doTest(named: "strings.lua")}
     func testVararg() async throws {try await doTest(named: "vararg.lua")}
     func testVerybig() async throws {try await doTest(named: "verybig.lua")}
+
+    func testLuaObject() async throws {
+        let state = LuaState(withLibraries: true)
+        let env = state.globalTable!
+        env["obj"] = .object(TestObject())
+        let cl = try await LuaLoad.load(from: """
+            obj:testNoArgs()
+            obj:testOneArg(2)
+            obj:testOneNamedArg(3)
+            obj:testOneOptionalArg(nil)
+            assert(obj:testNoArgsReturn() == "no args")
+            assert(obj:testTwoArgsReturn(string, "find") == string.find)
+            assert(obj:testOptionalReturn() == nil)
+            local a, b = obj:testTupleReturn()
+            assert(a == 51 and b == 19)
+            obj:testWithState()
+            assert(obj:testWithStateAndTwoArgs(3, 5) == 15)
+            assert(obj:testVararg(1, 2, 3) == 3)
+            assert(obj:testVarargWithState(1) == 1)
+            assert(pcall(obj.testThrows, obj, {}))
+            assert(not pcall(obj.testThrows, obj, 9))
+            assert(obj["unknown"] == "unknown")
+            assert(string.find(tostring(obj), "TestObject"))
+            print("LuaObject works OK")
+            return true
+            """, named: name, mode: .text, environment: env)
+        let fn = LuaFunction.lua(cl)
+        print("==> Running test LuaObject")
+        let res2 = try await fn.call(in: state.currentThread, with: [])
+        print("==> Test LuaObject results:")
+        for v in res2 {print(v)}
+    }
 }
 
 @LuaObject
@@ -78,7 +110,7 @@ public class TestObject {
     }
     
     public func testNoArgsReturn() -> String {
-        return ""
+        return "no args"
     }
     
     public func testTwoArgsReturn(_ a: LuaTable, _ b: LuaValue) -> LuaValue {
@@ -101,8 +133,8 @@ public class TestObject {
         return Double(a) * b
     }
     
-    public func testVararg(_ args: LuaArgs) {
-        
+    public func testVararg(_ args: LuaArgs) -> Int {
+        return args.count
     }
     
     public func testVarargWithState(_ state: Lua, _ args: LuaArgs) -> [LuaValue] {
@@ -118,5 +150,9 @@ public class TestObject {
     
     public func testYields(state: Lua, _ t: LuaThread) async throws -> [LuaValue] {
         return try await t.resume(in: state)
+    }
+
+    public subscript(index: LuaValue) -> LuaValue {
+        return index
     }
 }

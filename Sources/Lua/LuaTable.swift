@@ -74,6 +74,21 @@ public class LuaTable: Hashable {
         self.state = state.thread.luaState
     }
 
+    public init(from dict: [LuaValue: LuaValue]) {
+        self.array = dict
+            .compactMap {
+                if case let .number(n) = $0.key, let i = Int(exactly: n), i > 0 {return (i, $0.value)}
+                else {return nil}
+            }.sorted {$0.0 < $1.0}
+            .enumerated()
+            .prefix(while: {$0 + 1 == $1.0})
+            .map {$1.1}
+        self.hash = dict.filter {
+            if case let .number(n) = $0.key, let i = Int(exactly: n), i > 0 && i <= self.array.count {return false}
+            else {return true}
+        }
+    }
+
     private init(_ table: LuaTable) {
         self.array = table.array
         self.hash = table.hash
