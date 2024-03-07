@@ -2,6 +2,7 @@ import Lua
 
 public protocol LuaLibrary {
     var name: String {get}
+    var table: LuaTable {get}
 }
 
 public extension LuaLibrary {
@@ -22,18 +23,21 @@ public extension LuaLibrary {
     }
 }
 
+@attached(extension, conformances: LuaLibrary, names: named(table), named(name))
+public macro LuaLibrary(named: String) = #externalMacro(module: "LuaMacros", type: "LuaLibraryMacro")
+
 public extension LuaState {
     convenience init(withLibraries: Bool) {
         self.init()
         let _G = BaseLibrary().table
         _G["_G"] = .table(_G)
         _G["_VERSION"] = .string(.string("Lua 5.2"))
-        _G["bit32"] = .table(Bit32Library().table)
-        _G["coroutine"] = .table(CoroutineLibrary().table)
-        _G["math"] = .table(MathLibrary().table)
-        _G["os"] = .table(OSLibrary().table)
-        _G["string"] = .table(StringLibrary().table)
-        _G["table"] = .table(TableLibrary().table)
+        _G.load(library: Bit32Library())
+        _G.load(library: CoroutineLibrary())
+        _G.load(library: MathLibrary())
+        _G.load(library: OSLibrary())
+        _G.load(library: StringLibrary())
+        _G.load(library: TableLibrary())
         self.stringMetatable = LuaTable(from: [
             .string(.string("__index")): _G["string"]
         ])
@@ -42,7 +46,7 @@ public extension LuaState {
 }
 
 public extension LuaTable {
-    func load(library: LuaLibrary, name: String? = nil) {
+    func load(library: LuaLibrary, named name: String? = nil) {
         let nam = name ?? library.name
         self[nam] = .table(library.table)
     }

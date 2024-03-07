@@ -80,13 +80,33 @@ final class LuaTests: XCTestCase {
             assert(not pcall(obj.testThrows, obj, 9))
             assert(obj["unknown"] == "unknown")
             assert(string.find(tostring(obj), "TestObject"))
-            print("LuaObject works OK")
+            assert(obj.testStatic(1, 2, 3) == 3)
+            obj["unknown"] = "LuaObject works OK"
             return true
             """, named: name, mode: .text, environment: env)
         let fn = LuaFunction.lua(cl)
         print("==> Running test LuaObject")
         let res2 = try await fn.call(in: state.currentThread, with: [])
         print("==> Test LuaObject results:")
+        for v in res2 {print(v)}
+    }
+
+    func testLuaLibrary() async throws {
+        let state = LuaState(withLibraries: true)
+        let env = state.globalTable!
+        env.load(library: TestLibrary())
+        let cl = try await LuaLoad.load(from: """
+            assert(test._VERSION == "1.0")
+            assert(test.getValue() == "test")
+            test.setValue("abcd")
+            assert(test.getValue() == "abcd")
+            print("LuaLibrary works OK")
+            return true
+            """, named: name, mode: .text, environment: env)
+        let fn = LuaFunction.lua(cl)
+        print("==> Running test LuaLibrary")
+        let res2 = try await fn.call(in: state.currentThread, with: [])
+        print("==> Test LuaLibrary results:")
         for v in res2 {print(v)}
     }
 }
@@ -152,7 +172,30 @@ public class TestObject {
         return try await t.resume(in: state)
     }
 
+    public static func testStatic(_ args: LuaArgs) -> Int {
+        return args.count
+    }
+
     public subscript(index: LuaValue) -> LuaValue {
-        return index
+        get {
+            return index
+        } set (value) {
+            print(value)
+        }
+    }
+}
+
+@LuaLibrary(named: "test")
+public class TestLibrary {
+    private var value: String = "test"
+
+    public static let _VERSION = "1.0"
+
+    public func getValue() -> String {
+        return value
+    }
+
+    public func setValue(_ val: String) {
+        value = val
     }
 }

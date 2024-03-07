@@ -8,8 +8,8 @@ internal struct BaseLibrary: LuaLibrary {
     public let assert = LuaSwiftFunction {state, args in
         if !args[1].toBool {
             let msg = args[2].orElse(.string(.string("assertion failed!")))
-            if case let .string(.string(s)) = msg {
-                throw Lua.error(in: state, message: s)
+            if case let .string(s) = msg {
+                throw Lua.error(in: state, message: s.string)
             }
             throw Lua.LuaError.luaError(message: msg)
         }
@@ -17,8 +17,8 @@ internal struct BaseLibrary: LuaLibrary {
     }
 
     public let error = LuaSwiftFunction {state, args in
-        if case let .string(.string(s)) = args[1] {
-            throw Lua.error(in: state, message: s, at: try args.checkInt(at: 2, default: 1))
+        if case let .string(s) = args[1] {
+            throw Lua.error(in: state, message: s.string, at: try args.checkInt(at: 2, default: 1))
         }
         throw Lua.LuaError.luaError(message: args[1])
     }

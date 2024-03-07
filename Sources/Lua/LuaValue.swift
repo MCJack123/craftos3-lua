@@ -12,6 +12,62 @@ public enum LuaValue: Hashable {
         return .userdata(obj.userdata)
     }
 
+    public static func value(_ val: Bool) -> LuaValue {
+        return .boolean(val)
+    }
+
+    public static func value(_ val: any BinaryInteger) -> LuaValue {
+        return .number(Double(val))
+    }
+
+    public static func value(_ val: any BinaryFloatingPoint) -> LuaValue {
+        return .number(Double(val))
+    }
+
+    public static func value(_ val: String) -> LuaValue {
+        return .string(.string(val))
+    }
+
+    public static func value(_ val: Substring) -> LuaValue {
+        return .string(.substring(val))
+    }
+
+    public static func value(_ val: LuaSwiftFunction) -> LuaValue {
+        return .function(.swift(val))
+    }
+
+    public static func value(_ val: LuaClosure) -> LuaValue {
+        return .function(.lua(val))
+    }
+
+    public static func value(_ val: LuaFunction) -> LuaValue {
+        return .function(val)
+    }
+
+    public static func value(_ val: [LuaValue: LuaValue]) -> LuaValue {
+        return .table(LuaTable(from: val))
+    }
+
+    public static func value(_ val: LuaTable) -> LuaValue {
+        return .table(val)
+    }
+
+    public static func value(_ val: LuaThread) -> LuaValue {
+        return .thread(val)
+    }
+
+    public static func value(_ val: LuaObject) -> LuaValue {
+        return .userdata(val.userdata)
+    }
+
+    public static func value(_ val: LuaUserdata) -> LuaValue {
+        return .userdata(val)
+    }
+
+    public static func value(_ val: LuaValue) -> LuaValue {
+        return val
+    }
+
     internal struct Constants {
         internal static let `true` = LuaValue.boolean(true)
         internal static let `false` = LuaValue.boolean(false)
