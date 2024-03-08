@@ -34,6 +34,8 @@ public extension LuaState {
         _G["_VERSION"] = .string(.string("Lua 5.2"))
         _G.load(library: Bit32Library())
         _G.load(library: CoroutineLibrary())
+        _G.load(library: DebugLibrary())
+        _G.load(library: IOLibrary())
         _G.load(library: MathLibrary())
         _G.load(library: OSLibrary())
         _G.load(library: StringLibrary())

@@ -50,7 +50,35 @@ internal struct TableLibrary: LuaLibrary {
         return [.table(t)]
     }
 
-
+    public let sort = LuaSwiftFunction {state, args in
+        // TODO: add sorting function
+        // guh, I need to write my own sorting algorithm for this because the comparator can yield
+        let t = try args.checkTable(at: 1)
+        var arr = [LuaValue]()
+        var i = 1
+        while true {
+            let v = t[i]
+            if v == .nil {break}
+            arr.append(v)
+            i += 1
+        }
+        try arr.sort {a, b in 
+            if case let .number(an) = a, case let .number(bn) = b {
+                return an < bn
+            } else if case let .string(astr) = a, case let .string(bstr) = b {
+                return astr.string < bstr.string
+            } else if let mt = a.metatable(in: state), mt == b.metatable(in: state), mt["__lt"] != .nil {
+                // TODO
+                return false
+            } else {
+                throw Lua.error(in: state, message: "attempt to compare two ? values")
+            }
+        }
+        for (i, v) in arr.enumerated() {
+            t[i+1] = v
+        }
+        return []
+    }
 
     public let unpack = LuaSwiftFunction {state, args in
         let t = try args.checkTable(at: 1)

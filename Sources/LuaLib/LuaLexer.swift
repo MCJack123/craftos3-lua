@@ -234,7 +234,84 @@ internal struct LuaLexer {
                             sub = sub[sub.index(after: sub.startIndex)..<sub.index(before: sub.endIndex)]
                             current = .string(String(sub), line: line)
                         case "squote", "dquote":
-                            current = .string(String(s[s.index(after: s.startIndex)..<s.index(before: s.endIndex)]), line: line)
+                            let str = String(s[s.index(after: s.startIndex)..<s.index(before: s.endIndex)])
+                            var parsed = ""
+                            var i = str.startIndex
+                            while i < str.endIndex {
+                                let c = str[i]
+                                i = str.index(after: i)
+                                if c == "\\" {
+                                    if i == str.endIndex {
+                                        throw Lua.LuaError.runtimeError(message: "\(name):\(line): unfinished escape sequence")
+                                    }
+                                    switch str[i] {
+                                        case "a": parsed.append("\u{07}")
+                                        case "b": parsed.append("\u{08}")
+                                        case "f": parsed.append("\u{0C}")
+                                        case "n": parsed.append("\n")
+                                        case "r": parsed.append("\r")
+                                        case "t": parsed.append("\t")
+                                        case "v": parsed.append("\u{0B}")
+                                        case "x":
+                                            i = str.index(after: i)
+                                            if i == str.endIndex {
+                                                throw Lua.LuaError.runtimeError(message: "\(name):\(line): unfinished escape sequence")
+                                            }
+                                            var num = String(str[i])
+                                            i = str.index(after: i)
+                                            if i == str.endIndex {
+                                                throw Lua.LuaError.runtimeError(message: "\(name):\(line): unfinished escape sequence")
+                                            }
+                                            num.append(str[i])
+                                            guard let n = Int(num, radix: 16) else {
+                                                throw Lua.LuaError.runtimeError(message: "\(name):\(line): malformed escape sequence")
+                                            }
+                                            parsed.append(Character(Unicode.Scalar(n)!))
+                                        case "u":
+                                            i = str.index(after: i)
+                                            if i == str.endIndex {
+                                                throw Lua.LuaError.runtimeError(message: "\(name):\(line): unfinished escape sequence")
+                                            }
+                                            if str[i] != "{" {
+                                                throw Lua.LuaError.runtimeError(message: "\(name):\(line): invalid escape sequence")
+                                            }
+                                            i = str.index(after: i)
+                                            if i == str.endIndex {
+                                                throw Lua.LuaError.runtimeError(message: "\(name):\(line): unfinished escape sequence")
+                                            }
+                                            var num = String(str[i])
+                                            i = str.index(after: i)
+                                            while i != str.endIndex && str[i].isHexDigit {
+                                                num.append(str[i])
+                                                i = str.index(after: i)
+                                            }
+                                            if i == str.endIndex || str[i] != "{" {
+                                                throw Lua.LuaError.runtimeError(message: "\(name):\(line): invalid escape sequence")
+                                            }
+                                            guard let n = Int(num, radix: 16) else {
+                                                throw Lua.LuaError.runtimeError(message: "\(name):\(line): malformed escape sequence")
+                                            }
+                                            parsed.append(Character(Unicode.Scalar(n)!))
+                                        case "0", "1", "2", "3", "4", "5", "6", "7", "8", "9":
+                                            var num = String(str[i])
+                                            i = str.index(after: i)
+                                            while i != str.endIndex && str[i].isNumber && num.count < 3 {
+                                                num.append(str[i])
+                                                i = str.index(after: i)
+                                            }
+                                            i = str.index(before: i)
+                                            guard let n = Int(num) else {
+                                                throw Lua.LuaError.runtimeError(message: "\(name):\(line): malformed escape sequence")
+                                            }
+                                            parsed.append(Character(Unicode.Scalar(n)!))
+                                        default: parsed.append(str[i])
+                                    }
+                                    i = str.index(after: i)
+                                } else {
+                                    parsed.append(c)
+                                }
+                            }
+                            current = .string(parsed, line: line)
                         default: assert(false); throw Lua.LuaError.internalError
                     }
                     start = Int(e) - 1

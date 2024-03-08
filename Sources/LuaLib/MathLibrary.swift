@@ -54,8 +54,8 @@ internal class MathLibrary: LuaLibrary {
     public let modf = LuaSwiftFunction {state, args in
         var d = Double(0)
         var i = Double(0)
-        try withUnsafeMutablePointer(to: &d) { _d in
-            i = Math.modf(try args.checkNumber(at: 1), _d)
+        try withUnsafeMutablePointer(to: &i) { _i in
+            d = Math.modf(try args.checkNumber(at: 1), _i)
         }
         return [.number(i), .number(d)]
     }

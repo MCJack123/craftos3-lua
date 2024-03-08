@@ -21,6 +21,9 @@ let package = Package(
         .library(
             name: "LuaLib",
             targets: ["LuaLib"]),
+        .executable(
+            name: "LuaC",
+            targets: ["LuaC"])
     ],
     dependencies: [
         .package(name: "Math", path: "Packages/Math"),
@@ -35,6 +38,9 @@ let package = Package(
         .target(
             name: "LuaLib",
             dependencies: ["Lua", "Math"]),
+        .executableTarget(
+            name: "LuaC",
+            dependencies: ["Lua", "LuaLib"]),
         .testTarget(
             name: "LuaTests",
             dependencies: ["Lua", "LuaLib"]),

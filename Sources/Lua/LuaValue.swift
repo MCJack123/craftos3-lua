@@ -1,3 +1,20 @@
+internal extension String {
+    var trimmingSpaces: Substring {
+        var index = startIndex
+        while index < endIndex && self[index].isWhitespace {
+            index = self.index(after: index)
+        }
+        if index == endIndex {
+            return Substring()
+        }
+        var eindex = self.index(before: endIndex)
+        while eindex > index && self[eindex].isWhitespace {
+            eindex = self.index(before: eindex)
+        }
+        return self[index...eindex]
+    }
+}
+
 public enum LuaValue: Hashable {
     case `nil`
     case boolean(Bool)
@@ -203,7 +220,7 @@ public enum LuaValue: Hashable {
     public var toNumber: Double? {
         switch self {
             case .number(let val): return val
-            case .string(let val): return Double(val.string)
+            case .string(let val): return Double(val.string.trimmingSpaces)
             default: return nil
         }
     }
@@ -304,5 +321,10 @@ public enum LuaValue: Hashable {
         } else {
             return self
         }
+    }
+
+    public var optional: LuaValue? {
+        if self == .nil {return nil}
+        return self
     }
 }

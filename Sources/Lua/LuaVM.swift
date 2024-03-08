@@ -24,7 +24,13 @@ internal class LuaVM {
                 ci.vararg = []
             }
         }
+        if ci.stack.count < closure.proto.stackSize {
+            ci.stack.append(contentsOf: [LuaValue](repeating: .nil, count: Int(closure.proto.stackSize) - ci.stack.count))
+        }
         state.callStack.append(ci)
+        if let hook = state.hookFunction, state.hookFlags.contains(.call) {
+            _ = try await hook.call(in: state, with: [.string(.string("call"))])
+        }
         var nexec = 1
         var pc = 0
         while true {
@@ -40,6 +46,18 @@ internal class LuaVM {
                             }
                         }
                         state.luaState.tablesToBeFinalized = []
+                    }
+                    if state.hookCount > 0 {
+                        state.hookCountLeft -= 1
+                    }
+                    if let hook = state.hookFunction {
+                        if state.hookFlags.contains(.count) && state.hookCount > 0 && state.hookCountLeft == 0 {
+                            _ = try await hook.call(in: state, with: [.string(.string("count"))])
+                            state.hookCountLeft = state.hookCount
+                        }
+                        if state.hookFlags.contains(.line) && (pc == 0 || (pc < cl.proto.lineinfo.count && cl.proto.lineinfo[ci.savedpc] != cl.proto.lineinfo[pc])) {
+                            _ = try await hook.call(in: state, with: [.string(.string("line")), .number(Double(cl.proto.lineinfo[pc]))])
+                        }
                     }
                     let inst = insts[pc]
                     ci.savedpc = pc
@@ -98,25 +116,17 @@ internal class LuaVM {
                                 case .ADD, .SUB, .MUL, .DIV, .MOD, .POW:
                                     ci.stack[a] = try await arith(op: op, rkb, rkc, state: state)
                                 case .UNM:
-                                    switch ci.stack[b] {
-                                        case .number(let n): ci.stack[a] = .number(-n)
-                                        case .string(let s):
-                                            if let n = Double(s.string) {
-                                                ci.stack[a] = .number(-n)
-                                            } else {
-                                                fallthrough
-                                            }
-                                        default:
-                                            if let mt = ci.stack[b].metatable(in: state.luaState)?.metatable?[.Constants.__unm] {
-                                                switch mt {
-                                                    case .function(let fn):
-                                                        let res = try await fn.call(in: state, with: [ci.stack[b]])
-                                                        ci.stack[a] = res.first ?? .nil
-                                                    default: throw Lua.error(in: state, message: "attempt to perform arithmetic on a \(ci.stack[b].type) value")
-                                                }
-                                            } else {
-                                                throw Lua.error(in: state, message: "attempt to perform arithmetic on a \(ci.stack[b].type) value")
-                                            }
+                                    if let n = ci.stack[b].toNumber {
+                                        ci.stack[a] = .number(-n)
+                                    } else if let mt = ci.stack[b].metatable(in: state.luaState)?.metatable?[.Constants.__unm].optional {
+                                        switch mt {
+                                            case .function(let fn):
+                                                let res = try await fn.call(in: state, with: [ci.stack[b]])
+                                                ci.stack[a] = res.first ?? .nil
+                                            default: throw Lua.error(in: state, message: "attempt to perform arithmetic on a \(ci.stack[b].type) value")
+                                        }
+                                    } else {
+                                        throw Lua.error(in: state, message: "attempt to perform arithmetic on a \(ci.stack[b].type) value")
                                     }
                                 case .NOT:
                                     ci.stack[a] = .boolean(!ci.stack[b].toBool)
@@ -192,7 +202,7 @@ internal class LuaVM {
                                         pc += 1
                                     }
                                 case .CALL:
-                                    if let newci = try await call(in: ci, at: Int(a), args: b == 0 ? nil : Int(b - 1), returns: c == 0 ? nil : Int(c - 1), state: state) {
+                                    if let newci = try await call(in: ci, at: Int(a), args: b == 0 ? nil : Int(b - 1), returns: c == 0 ? nil : Int(c - 1), state: state, tailCall: false) {
                                         ci.savedpc = pc
                                         ci = newci
                                         pc = 0
@@ -201,8 +211,9 @@ internal class LuaVM {
                                     }
                                 case .TAILCALL:
                                     _ = state.callStack.popLast()
-                                    if let newci = try await call(in: ci, at: Int(a), args: b == 0 ? nil : Int(b - 1), returns: ci.numResults, state: state) {
+                                    if let newci = try await call(in: ci, at: Int(a), args: b == 0 ? nil : Int(b - 1), returns: ci.numResults, state: state, tailCall: true) {
                                         ci = newci
+                                        ci.tailcalls += 1
                                         pc = 0
                                         break oploop
                                     } else {
@@ -211,6 +222,9 @@ internal class LuaVM {
                                         fallthrough
                                     }
                                 case .RETURN:
+                                    if let hook = state.hookFunction, state.hookFlags.contains(.return) {
+                                        _ = try await hook.call(in: state, with: [.string(.string("return"))])
+                                    }
                                     _ = state.callStack.popLast()
                                     var res: [LuaValue]
                                     if b == 0 {
@@ -374,7 +388,7 @@ internal class LuaVM {
         }
     }
 
-    private static func call(function fn: LuaFunction, in ci: CallInfo, at idx: Int, args: Int?, returns: Int?, state: LuaThread) async throws -> CallInfo? {
+    private static func call(function fn: LuaFunction, in ci: CallInfo, at idx: Int, args: Int?, returns: Int?, state: LuaThread, tailCall: Bool) async throws -> CallInfo? {
         switch fn {
             case .lua(let cl):
                 let nextci = CallInfo(for: fn, numResults: returns, stackSize: Int(cl.proto.stackSize))
@@ -397,12 +411,21 @@ internal class LuaVM {
                     ci.stack = [LuaValue](ci.stack[0..<idx])
                 }
                 state.callStack.append(nextci)
+                if let hook = state.hookFunction, state.hookFlags.contains(tailCall ? .tailCall : .call) {
+                    _ = try await hook.call(in: state, with: [.string(.string(tailCall ? "tail call" : "call"))])
+                }
                 return nextci
             case .swift(let sfn):
                 state.callStack.append(CallInfo(for: fn, numResults: returns, stackSize: 0))
                 let argv = args != nil ? (args == 0 ? [] : [LuaValue](ci.stack[(idx + 1) ... (idx + args!)])) : [LuaValue](ci.stack[(idx+1)..<ci.top])
                 //print("Arguments:", argv)
+                if let hook = state.hookFunction, state.hookFlags.contains(tailCall ? .tailCall : .call) {
+                    _ = try await hook.call(in: state, with: [.string(.string(tailCall ? "tail call" : "call"))])
+                }
                 var res = try await sfn.body(Lua(in: state), LuaArgs(argv))
+                if !tailCall, let hook = state.hookFunction, state.hookFlags.contains(.return) {
+                    _ = try await hook.call(in: state, with: [.string(.string("return"))])
+                }
                 //print("Results:", res)
                 if let returns = returns {
                     if res.count > returns {res = [LuaValue](res[0..<returns])}
@@ -423,15 +446,15 @@ internal class LuaVM {
         }
     }
 
-    internal static func call(in ci: CallInfo, at idx: Int, args: Int?, returns: Int?, state: LuaThread) async throws -> CallInfo? {
+    internal static func call(in ci: CallInfo, at idx: Int, args: Int?, returns: Int?, state: LuaThread, tailCall: Bool = false) async throws -> CallInfo? {
         switch ci.stack[idx] {
             case .function(let fn):
-                return try await call(function: fn, in: ci, at: idx, args: args, returns: returns, state: state)
+                return try await call(function: fn, in: ci, at: idx, args: args, returns: returns, state: state, tailCall: tailCall)
             default:
                 if let meta = ci.stack[idx].metatable(in: state.luaState)?[.Constants.__call] {
                     switch meta {
                         case .function(let fn):
-                            return try await call(function: fn, in: ci, at: idx, args: args, returns: returns, state: state)
+                            return try await call(function: fn, in: ci, at: idx, args: args, returns: returns, state: state, tailCall: tailCall)
                         default: break
                     }
                 }
@@ -448,12 +471,15 @@ internal class LuaVM {
                 case .SUB: return .number(an - bn)
                 case .MUL: return .number(an * bn)
                 case .DIV: return .number(an / bn)
-                case .MOD: return .number(an.truncatingRemainder(dividingBy: bn))
+                case .MOD:
+                    let q = fmod(an, bn)
+                    if (an < 0) != (bn < 0) {return .number(q + bn)}
+                    return .number(q)
                 case .POW: return .number(pow(an, bn))
                 default: throw Lua.LuaError.vmError
             }
         }
-        if let mt = a.metatable(in: state.luaState)?[.Constants.arithops[op]!] ?? b.metatable(in: state.luaState)?[.Constants.arithops[op]!] {
+        if let mt = a.metatable(in: state.luaState)?[.Constants.arithops[op]!].optional ?? b.metatable(in: state.luaState)?[.Constants.arithops[op]!].optional {
             switch mt {
                 case .function(let fn):
                     let res = try await fn.call(in: state, with: [a, b])

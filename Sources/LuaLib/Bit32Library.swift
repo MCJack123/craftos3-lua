@@ -35,7 +35,7 @@ internal struct Bit32Library: LuaLibrary {
 
     public let btest = LuaSwiftFunction {state, args in
         var a = UInt32(0xFFFFFFFF)
-        if args.count == 0 {return [.number(Double(a))]}
+        if args.count == 0 {return [.boolean(true)]}
         for i in 1...args.count {
             let b = UInt32(bitPattern: Int32(truncatingIfNeeded: try args.checkInt(at: i)))
             a &= b

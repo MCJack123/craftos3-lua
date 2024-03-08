@@ -4,9 +4,7 @@ public class LuaTable: Hashable {
     }
 
     public func hash(into hasher: inout Hasher) {
-        hasher.combine(hash)
-        hasher.combine(array)
-        hasher.combine(metatable)
+        hasher.combine(Unmanaged.passUnretained(self).toOpaque())
     }
 
     private var hash = [LuaValue: LuaValue]()

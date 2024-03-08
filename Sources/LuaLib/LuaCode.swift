@@ -228,8 +228,14 @@ internal class LuaCode {
                 let (type, k) = variable(named: name)
                 switch type {
                     case .local: return UInt16(k)
-                    case .upvalue: _ = fn.add(opcode: .iABC(.GETUPVAL, UInt8(idx), UInt16(k), 0)); return UInt16(idx)
-                    case .global: _ = fn.add(opcode: .iABC(.GETTABUP, UInt8(idx), UInt16(k), UInt16(0x100 | fn.constant(for: .string(.string(name)))))); return UInt16(idx)
+                    case .upvalue:
+                        fn.allocate(slot: idx)
+                        _ = fn.add(opcode: .iABC(.GETUPVAL, UInt8(idx), UInt16(k), 0))
+                        return UInt16(idx)
+                    case .global:
+                        fn.allocate(slot: idx)
+                        _ = fn.add(opcode: .iABC(.GETTABUP, UInt8(idx), UInt16(k), UInt16(0x100 | fn.constant(for: .string(.string(name))))))
+                        return UInt16(idx)
                 }
             } else {
                 fn.allocate(slot: idx)
@@ -455,7 +461,7 @@ internal class LuaCode {
                         return
                     }
                     let lidx = rk(for: left, at: idx)
-                    let ridx = rk(for: right, at: idx)
+                    let ridx = rk(for: right, at: idx + 1)
                     let op: LuaOpcode.Operation
                     switch oper {
                         case .add: op = .ADD

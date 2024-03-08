@@ -1,5 +1,22 @@
 import Lua
 
+internal extension String {
+    var trimmingSpaces: Substring {
+        var index = startIndex
+        while index < endIndex && self[index].isWhitespace {
+            index = self.index(after: index)
+        }
+        if index == endIndex {
+            return Substring()
+        }
+        var eindex = self.index(before: endIndex)
+        while eindex > index && self[eindex].isWhitespace {
+            eindex = self.index(before: eindex)
+        }
+        return self[index...eindex]
+    }
+}
+
 internal struct BaseLibrary: LuaLibrary {
     public let name = "base"
 
@@ -167,7 +184,7 @@ internal struct BaseLibrary: LuaLibrary {
 
     public let select = LuaSwiftFunction {state, args in
         if args[1] == .string(.string("#")) {
-            return [.number(Double(args.count))]
+            return [.number(Double(args.count - 1))]
         }
         let idx = Int(try args.checkNumber(at: 1))
         return [LuaValue](args[idx...])
@@ -196,10 +213,16 @@ internal struct BaseLibrary: LuaLibrary {
         switch args[1] {
             case .number: return [args[1]]
             case .string(let s):
+                if s.string.lowercased() == "nan" || s.string.lowercased() == "inf" || s.string.contains("\0") {
+                    // special case
+                    return [.nil]
+                }
                 if args[2] != .nil {
                     let radix = Int(try args.checkNumber(at: 2))
-                    if let n = Int(s.string, radix: radix) {
+                    if let n = Int(s.string.trimmingSpaces, radix: radix) {
                         return [.number(Double(n))]
+                    } else {
+                        return [.nil]
                     }
                 }
                 if let n = Double(s.string) {

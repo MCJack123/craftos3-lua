@@ -20,7 +20,7 @@ final class LuaTests: XCTestCase {
         env["_noposix"] = .boolean(false)
         env["_nolonglong"] = .boolean(false)
         env["_noformatA"] = .boolean(false)
-        env["require"] = .function(.swift(.empty))
+        env["require"] = .function(.swift(LuaSwiftFunction {state, args in [env[args[1]]]}))
         env["collectgarbage"] = .function(.swift(.empty))
         print("==> Loading test \(name)")
         let cl = try await LuaLoad.load(from: try String(contentsOf: URL(fileURLWithPath: "LuaTests/" + name), encoding: .isoLatin1), named: name, mode: .text, environment: env)

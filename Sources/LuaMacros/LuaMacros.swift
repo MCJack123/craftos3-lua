@@ -50,6 +50,8 @@ internal func convert(type: TypeSyntax, atParameter index: Int, defaultValue: In
                 return "let _\(raw: index) = \(raw: optional ? "try?" : "try") args.checkFunction(at: \(raw: index))\n"
             case "LuaThread":
                 return "let _\(raw: index) = \(raw: optional ? "try?" : "try") args.checkThread(at: \(raw: index))\n"
+            case "LuaUserdata":
+                return "let _\(raw: index) = \(raw: optional ? "try?" : "try") args.checkUserdata(at: \(raw: index))\n"
             default:
                 let e = LuaMacroError.typeError(node: type, text: typ.name.text)
                 context.addDiagnostics(from: e, node: type)
@@ -84,6 +86,8 @@ internal func convert(typeForReturnValue type: TypeSyntax, context: some MacroEx
                             items.append(ArrayElementSyntax(expression: ExprSyntax("res != nil ? .function(res.\(raw: i)!) : .nil, ")))
                         case "LuaThread":
                             items.append(ArrayElementSyntax(expression: ExprSyntax("res != nil ? .thread(res.\(raw: i)!) : .nil, ")))
+                        case "LuaUserdata":
+                            items.append(ArrayElementSyntax(expression: ExprSyntax("res != nil ? .userdata(res.\(raw: i)!) : .nil, ")))
                         default:
                             let e = LuaMacroError.typeError(node: type, text: typ.name.text)
                             context.addDiagnostics(from: e, node: type)
@@ -112,6 +116,8 @@ internal func convert(typeForReturnValue type: TypeSyntax, context: some MacroEx
                         items.append(ArrayElementSyntax(expression: ExprSyntax(".function(res.\(raw: i)), ")))
                     case "LuaThread":
                         items.append(ArrayElementSyntax(expression: ExprSyntax(".thread(res.\(raw: i)), ")))
+                    case "LuaUserdata":
+                        items.append(ArrayElementSyntax(expression: ExprSyntax(".userdata(res.\(raw: i)), ")))
                     default:
                         let e = LuaMacroError.typeError(node: type, text: typ.name.text)
                         context.addDiagnostics(from: e, node: type)
@@ -144,6 +150,8 @@ internal func convert(typeForReturnValue type: TypeSyntax, context: some MacroEx
                     return "[res != nil ? .function(res!) : .nil]"
                 case "LuaThread":
                     return "[res != nil ? .thread(res!) : .nil]"
+                case "LuaUserdata":
+                    return "[res != nil ? .userdata(res!) : .nil]"
                 default:
                     let e = LuaMacroError.typeError(node: type, text: typ.name.text)
                     context.addDiagnostics(from: e, node: type)
@@ -173,6 +181,8 @@ internal func convert(typeForReturnValue type: TypeSyntax, context: some MacroEx
                 return "[.function(res)]"
             case "LuaThread":
                 return "[.thread(res)]"
+            case "LuaUserdata":
+                return "[.userdata(res)]"
             default:
                 let e = LuaMacroError.typeError(node: type, text: typ.name.text)
                 context.addDiagnostics(from: e, node: type)

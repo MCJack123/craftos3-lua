@@ -63,6 +63,10 @@ public class LuaThread: Hashable {
     private var continuation: CheckedContinuation<[LuaValue], Error>!
     internal var callStack = [CallInfo]()
     internal var luaState: LuaState
+    internal var hookFunction: LuaFunction?
+    internal var hookFlags: Lua.HookFlags = []
+    internal var hookCount: Int = 0
+    internal var hookCountLeft: Int = 0
     
     /// The current state of the coroutine.
     public private(set) var state: State = .suspended

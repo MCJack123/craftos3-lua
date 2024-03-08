@@ -1,6 +1,7 @@
 public class LuaUserdata: Hashable {
     public let object: AnyObject
     public var metatable: LuaTable? = nil
+    public var uservalue: LuaValue = .nil
 
     public init(for obj: AnyObject, with mt: LuaTable? = nil) {
         self.object = obj

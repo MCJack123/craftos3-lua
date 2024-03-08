@@ -515,7 +515,11 @@ internal class LuaParser {
         while !ops.isEmpty {
             let right = out.removeLast()
             let left = out.removeLast()
-            out.append(.binop(ops.removeLast(), left, right))
+            if ops.last == .pow, case let .unop(op, v) = left {
+                out.append(.unop(op, .binop(ops.removeLast(), v, right)))
+            } else {
+                out.append(.binop(ops.removeLast(), left, right))
+            }
         }
         assert(out.count == 1)
         return out[0]
