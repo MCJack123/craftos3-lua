@@ -50,6 +50,17 @@ internal struct TableLibrary: LuaLibrary {
         return [.table(t)]
     }
 
+    public let remove = LuaSwiftFunction {state, args in
+        let t = try args.checkTable(at: 1)
+        var i = try args.checkInt(at: 2, default: t.count)
+        let v = t[i]
+        while t[i] != .nil {
+            t[i] = t[i+1]
+            i += 1
+        }
+        return [v]
+    }
+
     public let sort = LuaSwiftFunction {state, args in
         // TODO: add sorting function
         // guh, I need to write my own sorting algorithm for this because the comparator can yield

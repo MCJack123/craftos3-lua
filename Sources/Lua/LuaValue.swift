@@ -1,20 +1,3 @@
-internal extension String {
-    var trimmingSpaces: Substring {
-        var index = startIndex
-        while index < endIndex && self[index].isWhitespace {
-            index = self.index(after: index)
-        }
-        if index == endIndex {
-            return Substring()
-        }
-        var eindex = self.index(before: endIndex)
-        while eindex > index && self[eindex].isWhitespace {
-            eindex = self.index(before: eindex)
-        }
-        return self[index...eindex]
-    }
-}
-
 public enum LuaValue: Hashable {
     case `nil`
     case boolean(Bool)
@@ -41,12 +24,20 @@ public enum LuaValue: Hashable {
         return .number(Double(val))
     }
 
+    public static func value(_ val: [UInt8]) -> LuaValue {
+        return .string(.string(val))
+    }
+
+    public static func value(_ val: ArraySlice<UInt8>) -> LuaValue {
+        return .string(.substring(val))
+    }
+
     public static func value(_ val: String) -> LuaValue {
         return .string(.string(val))
     }
 
     public static func value(_ val: Substring) -> LuaValue {
-        return .string(.substring(val))
+        return .string(.string(val.map {$0.asciiValue ?? 0}))
     }
 
     public static func value(_ val: LuaSwiftFunction) -> LuaValue {
@@ -157,6 +148,9 @@ public enum LuaValue: Hashable {
     }
 
     public func index(_ index: LuaValue, value: LuaValue, in state: LuaThread) async throws {
+        if index == .nil {
+            throw Lua.error(in: state, message: "table index is nil")
+        }
         switch self {
             case .table(let tbl):
                 if tbl[index] != .nil {
@@ -202,6 +196,23 @@ public enum LuaValue: Hashable {
             case .boolean(let val): return val ? "true" : "false"
             case .number(let val): return String(val)
             case .string(let val): return val.string
+            case .function(let val):
+                switch val {
+                    case .lua(let cl): return "function: \(String(UInt(bitPattern: Unmanaged.passUnretained(cl).toOpaque()), radix: 16))"
+                    case .swift(let cl): return "function: \(String(UInt(bitPattern: Unmanaged.passUnretained(cl).toOpaque()), radix: 16))"
+                }
+            case .userdata(let val): return "\((try? val.metatable?["__name"].checkString(at: 0)) ?? "userdata"): \(String(UInt(bitPattern: Unmanaged.passUnretained(val).toOpaque()), radix: 16))"
+            case .thread(let val): return "thread: \(String(UInt(bitPattern: Unmanaged.passUnretained(val).toOpaque()), radix: 16))"
+            case .table(let val): return "\((try? val.metatable?["__name"].checkString(at: 0)) ?? "table"): \(String(UInt(bitPattern: Unmanaged.passUnretained(val).toOpaque()), radix: 16))"
+        }
+    }
+
+    public var toBytes: [UInt8] {
+        switch self {
+            case .nil: return "nil"
+            case .boolean(let val): return val ? "true" : "false"
+            case .number(let val): return String(val).bytes
+            case .string(let val): return val.bytes
             case .function(let val):
                 switch val {
                     case .lua(let cl): return "function: \(String(UInt(bitPattern: Unmanaged.passUnretained(cl).toOpaque()), radix: 16))"
@@ -261,6 +272,16 @@ public enum LuaValue: Hashable {
         }
         if case let .string(val) = self {
             return val.string
+        }
+        throw Lua.argumentError(at: index, for: self, expected: "string")
+    }
+
+    public func checkBytes(at index: Int, default defaultValue: [UInt8]? = nil) throws -> [UInt8] {
+        if defaultValue != nil && self == .nil {
+            return defaultValue!
+        }
+        if case let .string(val) = self {
+            return val.bytes
         }
         throw Lua.argumentError(at: index, for: self, expected: "string")
     }

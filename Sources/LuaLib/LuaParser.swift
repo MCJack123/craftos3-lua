@@ -74,7 +74,7 @@ internal class LuaParser {
         return name
     }
 
-    private func readString() async throws -> String {
+    private func readString() async throws -> [UInt8] {
         let tok = current
         guard case let .string(str, _) = tok else {
             throw Error.syntaxError(message: "string expected", token: tok)

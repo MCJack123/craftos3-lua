@@ -30,7 +30,7 @@ internal class LuaCode {
         private var stackSize: UInt8 = 0
         private var numParams: UInt8 = 0
         private var isVararg: UInt8 = 0
-        private var name: String = ""
+        private var name: [UInt8] = ""
         private var lineDefined: Int32 = 0
         private var lastLineDefined: Int32 = 0
         private var lineinfo = [Int32]()
@@ -40,7 +40,7 @@ internal class LuaCode {
         internal var root: Block!
         internal var line: Int = 0
 
-        fileprivate init(named name: String) {
+        fileprivate init(named name: [UInt8]) {
             self.parent = nil
             self.name = name
             root = Block(for: self)
@@ -520,11 +520,15 @@ internal class LuaCode {
             if vars.count == 1, case let .name(name) = vars[0] {
                 let (type, idx) = variable(named: name)
                 if type == .local {
-                    expression(explist[0], to: idx)
-                    for i in 1..<explist.count {
-                        expression(explist[i], to: level)
+                    switch explist[0] {
+                        case .constant, .false, .true, .nil, .vararg:
+                            expression(explist[0], to: idx)
+                            for i in 1..<explist.count {
+                                expression(explist[i], to: level)
+                            }
+                            return
+                        default: break
                     }
-                    return
                 }
             }
             var tables = 0, nexttable = 0
@@ -970,7 +974,7 @@ internal class LuaCode {
         return coder.encode()
     }
 
-    internal init(named name: String) {
+    internal init(named name: [UInt8]) {
         root = Function(named: name)
         block = root.root
     }

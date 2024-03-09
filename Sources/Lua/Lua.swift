@@ -59,7 +59,7 @@ public class Lua {
         public var name: String?
         public var nameWhat: NameType?
         public var what: FunctionType?
-        public var source: String?
+        public var source: [UInt8]?
         public var currentLine: Int?
         public var lineDefined: Int?
         public var lastLineDefined: Int?
@@ -85,7 +85,7 @@ public class Lua {
         if idx >= 0 && idx < thread.callStack.count {
             let ci = thread.callStack[idx]
             if case let .lua(cl) = ci.function, ci.savedpc < cl.proto.lineinfo.count {
-                return LuaError.runtimeError(message: "\(cl.proto.name):\(cl.proto.lineinfo[ci.savedpc]): \(text)")
+                return LuaError.runtimeError(message: "\(cl.proto.name.string):\(cl.proto.lineinfo[ci.savedpc]): \(text)")
             }
         }
         return LuaError.runtimeError(message: text)
@@ -102,6 +102,18 @@ public class Lua {
 
     public init(in thread: LuaThread) {
         self.thread = thread
+    }
+
+    public func error(_ text: String, at level: Int = 1) -> LuaError {
+        return Lua.error(in: thread, message: text, at: level)
+    }
+
+    public func argumentError(at index: Int, for val: LuaValue, expected type: String) -> LuaError {
+        return self.error("bad argument #\(index) (expected \(type), got \(val.type))", at: 1)
+    }
+
+    public func argumentError(at index: Int, in args: LuaArgs, expected type: String) -> LuaError {
+        return self.error("bad argument #\(index) (expected \(type), got \(args[index].type))", at: 1)
     }
 
     private func info(with options: Debug.InfoFlags, in ci: CallInfo?, for function: LuaFunction, at level: Int?) -> Debug {

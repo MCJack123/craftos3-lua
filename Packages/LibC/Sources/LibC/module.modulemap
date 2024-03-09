@@ -1,4 +1,4 @@
-module Math {
+module LibC {
     header "shim.h"
     link "m"
     export *

@@ -53,7 +53,7 @@ internal class OSLibrary: LuaLibrary {
             case .nil: Foundation.exit(0)
             case .boolean(let b): Foundation.exit(b ? 1 : 0)
             case .number(let n): Foundation.exit(Int32(n))
-            default: throw Lua.argumentError(at: 1, for: args[1], expected: "boolean or number")
+            default: throw state.argumentError(at: 1, for: args[1], expected: "boolean or number")
         }
     }
 

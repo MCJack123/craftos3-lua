@@ -57,7 +57,7 @@ public struct LuaObjectMacro: MemberMacro, ExtensionMacro {
                     params.removeFirst()
                 }
                 if params.first?.type.as(IdentifierTypeSyntax.self)?.name.text == "LuaArgs" {
-                    call += (params.first!.firstName.text == "_" ? "" : params.first!.firstName.text + ": ") + "LuaArgs([LuaValue](args.args[1...])), "
+                    call += (params.first!.firstName.text == "_" ? "" : params.first!.firstName.text + ": ") + "LuaArgs([LuaValue](args.args[1...]), state: state), "
                 } else {
                     for (i, param) in params.enumerated() {
                         argcheck.append(try convert(type: param.type, atParameter: i + 2, defaultValue: param.defaultValue, context: context))

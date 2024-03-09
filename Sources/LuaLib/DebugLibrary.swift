@@ -2,7 +2,7 @@ import Lua
 
 @LuaLibrary(named: "debug")
 internal class DebugLibrary {
-    public func debug(_ state: Lua) async {
+    public func debug(_ state: Lua) async throws {
         while true {
             if let line = readLine(), line != "cont" {
                 do {
@@ -15,6 +15,8 @@ internal class DebugLibrary {
                         case .vmError: print("vm error")
                         case .internalError: print("internal error")
                     }
+                } catch LuaThread.CoroutineError.cancel {
+                    throw LuaThread.CoroutineError.cancel
                 } catch let error {
                     print(error.localizedDescription)
                 }
@@ -62,7 +64,7 @@ internal class DebugLibrary {
                     } else {
                         return nil
                     }
-                default: throw Lua.argumentError(at: 2, for: args[2], expected: "function or number")
+                default: throw state.argumentError(at: 2, for: args[2], expected: "function or number")
             }
         } else if args.count == 2 {
             // thread, f; or f, what
@@ -87,9 +89,9 @@ internal class DebugLibrary {
                             } else {
                                 return nil
                             }
-                        default: throw Lua.argumentError(at: 2, for: args[2], expected: "function or number")
+                        default: throw state.argumentError(at: 2, for: args[2], expected: "function or number")
                     }
-                default: throw Lua.argumentError(at: 1, for: args[1], expected: "function or number")
+                default: throw state.argumentError(at: 1, for: args[1], expected: "function or number")
             }
         } else if args.count == 1 {
             // f
@@ -102,7 +104,7 @@ internal class DebugLibrary {
                     } else {
                         return nil
                     }
-                default: throw Lua.argumentError(at: 1, for: args[1], expected: "function or number")
+                default: throw state.argumentError(at: 1, for: args[1], expected: "function or number")
             }
         } else {
             throw Lua.error(in: state, message: "bad argument #1 (value expected)")
@@ -175,7 +177,7 @@ internal class DebugLibrary {
                 if let v = st.local(in: fn, index: local) {
                     return [.string(.string(v)), .nil]
                 }
-            default: throw Lua.argumentError(at: st === state ? 1 : 2, for: f, expected: "number or function")
+            default: throw state.argumentError(at: st === state ? 1 : 2, for: f, expected: "number or function")
         }
         return []
     }

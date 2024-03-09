@@ -1,4 +1,4 @@
-import Math
+import LibC
 
 extension Array {
     subscript(index: UInt8) -> Array.Element {get {return self[Int(index)]} set (value) {self[Int(index)] = value}}
@@ -7,7 +7,7 @@ extension Array {
 }
 
 internal class LuaVM {
-    internal static func execute(closure: LuaClosure, with args: [LuaValue], numResults: Int, state: LuaThread) async throws -> [LuaValue] {
+    internal static func execute(closure: LuaClosure, with args: [LuaValue], numResults: Int?, state: LuaThread) async throws -> [LuaValue] {
         //print("Starting interpreter with args", args)
         var ci = CallInfo(for: .lua(closure), numResults: numResults, stackSize: Int(closure.proto.stackSize))
         var newargs = args
@@ -218,7 +218,7 @@ internal class LuaVM {
                                         break oploop
                                     } else {
                                         state.callStack.append(ci) // immediately removed
-                                        b = 0
+                                        b = UInt16(ci.numResults != nil ? ci.numResults! + 1 : 0)
                                         fallthrough
                                     }
                                 case .RETURN:
@@ -234,6 +234,7 @@ internal class LuaVM {
                                     }
                                     nexec -= 1
                                     if state.callStack.isEmpty || nexec == 0 {
+                                        //print("Results:", res)
                                         return res
                                     }
                                     switch state.callStack.last!.function {
@@ -422,7 +423,8 @@ internal class LuaVM {
                 if let hook = state.hookFunction, state.hookFlags.contains(tailCall ? .tailCall : .call) {
                     _ = try await hook.call(in: state, with: [.string(.string(tailCall ? "tail call" : "call"))])
                 }
-                var res = try await sfn.body(Lua(in: state), LuaArgs(argv))
+                let L = Lua(in: state)
+                var res = try await sfn.body(L, LuaArgs(argv, state: L))
                 if !tailCall, let hook = state.hookFunction, state.hookFlags.contains(.return) {
                     _ = try await hook.call(in: state, with: [.string(.string("return"))])
                 }

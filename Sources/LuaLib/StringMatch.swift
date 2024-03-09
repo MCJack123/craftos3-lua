@@ -1,15 +1,15 @@
 import Lua
 
 private struct StringPointer: Comparable {
-    var string: String
-    var index: String.Index
+    var string: [UInt8]
+    var index: [UInt8].Index
 
-    init(_ str: String) {
+    init(_ str: [UInt8]) {
         string = str
         index = string.startIndex
     }
 
-    init(_ str: String, _ idx: String.Index) {
+    init(_ str: [UInt8], _ idx: [UInt8].Index) {
         string = str
         index = idx
     }
@@ -18,10 +18,21 @@ private struct StringPointer: Comparable {
         if index >= string.endIndex {
             return nil
         }
+        return Character(Unicode.Scalar(string[index]))
+    }
+
+    var firstByte: UInt8? {
+        if index >= string.endIndex {
+            return nil
+        }
         return string[index]
     }
 
     func character(at n: Int) -> Character? {
+        return Character(Unicode.Scalar(string[string.index(index, offsetBy: n)]))
+    }
+
+    func byte(at n: Int) -> UInt8? {
         return string[string.index(index, offsetBy: n)]
     }
 
@@ -39,7 +50,7 @@ private struct StringPointer: Comparable {
         if index == string.endIndex {
             return nil
         }
-        let c = string[index]
+        let c = Character(Unicode.Scalar(string[index]))
         index = string.index(after: index)
         return c
     }
@@ -59,16 +70,16 @@ private struct StringPointer: Comparable {
 
 internal class StringMatch {
     private var matchdepth: Int = 200
-    private let src: String
+    private let src: [UInt8]
     private let src_end: StringPointer
-    private let pattern: String
+    private let pattern: [UInt8]
     private let p_end: StringPointer
     private var captures = [(StringPointer, Int)]()
 
     private static let CAP_POSITION = -2
     private static let CAP_UNFINISHED = -1
 
-    private init(_ str: String, _ p: String) {
+    private init(_ str: [UInt8], _ p: [UInt8]) {
         src = str
         src_end = StringPointer(str, str.endIndex)
         pattern = p
@@ -390,11 +401,11 @@ internal class StringMatch {
         return retval
     }
 
-    internal static func find(in str: String, for p: String, from index: Int = 0) throws -> (Int, Int, [LuaValue])? {
+    internal static func find(in str: [UInt8], for p: [UInt8], from index: Int = 0) throws -> (Int, Int, [LuaValue])? {
         var p = p
-        let anchor = p.first == "^"
+        let anchor = p.first == ("^" as Character).asciiValue
         if anchor {
-            p = String(p[p.index(after: p.startIndex)...])
+            p = [UInt8](p[p.index(after: p.startIndex)...])
         }
         let ms = StringMatch(str, p)
         var s1 = StringPointer(str, str.index(str.startIndex, offsetBy: index))
@@ -408,11 +419,11 @@ internal class StringMatch {
         return nil
     }
 
-    internal static func match(in str: String, for p: String, from index: Int = 0) throws -> [LuaValue] {
+    internal static func match(in str: [UInt8], for p: [UInt8], from index: Int = 0) throws -> [LuaValue] {
         var p = p
-        let anchor = p.first == "^"
+        let anchor = p.first == ("^" as Character).asciiValue
         if anchor {
-            p = String(p[p.index(after: p.startIndex)...])
+            p = [UInt8](p[p.index(after: p.startIndex)...])
         }
         let ms = StringMatch(str, p)
         var s1 = StringPointer(str, str.index(str.startIndex, offsetBy: index))
@@ -427,11 +438,11 @@ internal class StringMatch {
     }
 
     internal struct gmatch {
-        private let s: String
-        private let p: String
+        private let s: [UInt8]
+        private let p: [UInt8]
         private var src: StringPointer
 
-        internal init(in str: String, for pat: String) {
+        internal init(in str: [UInt8], for pat: [UInt8]) {
             s = str
             p = pat
             src = StringPointer(str)
@@ -455,17 +466,17 @@ internal class StringMatch {
         }
     }
 
-    internal static func gsub(in str: String, replace p: String, with rep: LuaValue, max: Int? = nil, thread: LuaThread? = nil) async throws -> (String, Int) {
+    internal static func gsub(in str: [UInt8], replace p: [UInt8], with rep: LuaValue, max: Int? = nil, thread: LuaThread? = nil) async throws -> ([UInt8], Int) {
         var p = p
-        let anchor = p.first == "^"
+        let anchor = p.first == ("^" as Character).asciiValue
         if anchor {
-            p = String(p[p.index(after: p.startIndex)...])
+            p = [UInt8](p[p.index(after: p.startIndex)...])
         }
         let ms = StringMatch(str, p)
         var src = StringPointer(str)
         let pp = StringPointer(p)
         var n = 0
-        var retval = ""
+        var retval = [UInt8]()
         while max == nil || n < max! {
             ms.captures = []
             let e = try ms.match(src, pp)
@@ -481,21 +492,21 @@ internal class StringMatch {
                     case .table(let t):
                         res = t[try ms.push_onecapture(0, src, e)]
                     default:
-                        let rstr = rep.toString
-                        var resstr = ""
+                        let rstr = rep.toBytes
+                        var resstr = [UInt8]()
                         var i = StringPointer(rstr)
                         while i.index < rstr.endIndex {
                             if i.first != "%" {
-                                resstr.append(i.first!)
+                                resstr.append(i.firstByte!)
                             } else {
                                 _=i.next()
                                 if let c = i.first {
                                     if !c.isNumber {
-                                        resstr.append(c)
+                                        resstr.append(i.firstByte!)
                                     } else if c == "0" {
                                         resstr.append(contentsOf: str[src.index..<e.index])
                                     } else {
-                                        resstr.append(contentsOf: try ms.push_onecapture(c.wholeNumberValue! - 1, src, e).toString)
+                                        resstr.append(contentsOf: try ms.push_onecapture(c.wholeNumberValue! - 1, src, e).toBytes)
                                     }
                                 } else {
                                     throw Lua.LuaError.runtimeError(message: "incomplete replacement string")
@@ -508,13 +519,13 @@ internal class StringMatch {
                 if res == .nil || res == .boolean(false) {
                     retval.append(contentsOf: str[src.index..<e.index])
                 } else {
-                    retval.append(contentsOf: res.toString)
+                    retval.append(contentsOf: res.toBytes)
                 }
             }
             if let e = e, e > src {
                 src = e
             } else if src < ms.src_end {
-                retval.append(src.next()!)
+                retval.append(UInt8(src.next()!.unicodeScalars.first!.value))
             } else {
                 break
             }
@@ -526,36 +537,36 @@ internal class StringMatch {
         return (retval, n)
     }
 
-    internal static func gsub(in str: String, replace p: String, with rstr: String, max: Int? = nil) throws -> (String, Int) {
+    internal static func gsub(in str: [UInt8], replace p: [UInt8], with rstr: [UInt8], max: Int? = nil) throws -> ([UInt8], Int) {
         var p = p
-        let anchor = p.first == "^"
+        let anchor = p.first == ("^" as Character).asciiValue!
         if anchor {
-            p = String(p[p.index(after: p.startIndex)...])
+            p = [UInt8](p[p.index(after: p.startIndex)...])
         }
         let ms = StringMatch(str, p)
         var src = StringPointer(str)
         let pp = StringPointer(p)
         var n = 0
-        var retval = ""
+        var retval = [UInt8]()
         while max == nil || n < max! {
             ms.captures = []
             let e = try ms.match(src, pp)
             if let e = e {
                 n += 1
-                var resstr = ""
+                var resstr = [UInt8]()
                 var i = StringPointer(rstr)
                 while i.index < rstr.endIndex {
                     if i.first != "%" {
-                        resstr.append(i.first!)
+                        resstr.append(i.firstByte!)
                     } else {
                         _=i.next()
                         if let c = i.first {
                             if !c.isNumber {
-                                resstr.append(c)
+                                resstr.append(i.firstByte!)
                             } else if c == "0" {
                                 resstr.append(contentsOf: str[src.index..<e.index])
                             } else {
-                                resstr.append(contentsOf: try ms.push_onecapture(c.wholeNumberValue! - 1, src, e).toString)
+                                resstr.append(contentsOf: try ms.push_onecapture(c.wholeNumberValue! - 1, src, e).toBytes)
                             }
                         } else {
                             throw Lua.LuaError.runtimeError(message: "incomplete replacement string")
@@ -568,7 +579,7 @@ internal class StringMatch {
             if let e = e, e > src {
                 src = e
             } else if src < ms.src_end {
-                retval.append(src.next()!)
+                retval.append(UInt8(src.next()!.unicodeScalars.first!.value))
             } else {
                 break
             }

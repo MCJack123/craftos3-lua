@@ -7,13 +7,14 @@ public enum LuaFunction: Hashable {
             case .lua(let cl):
                 let top = state.callStack.count
                 do {
-                    return try await LuaVM.execute(closure: cl, with: args, numResults: 0, state: state)
+                    return try await LuaVM.execute(closure: cl, with: args, numResults: nil, state: state)
                 } catch let error {
                     state.callStack.removeLast(state.callStack.count - top)
                     throw error
                 }
             case .swift(let fn):
-                return try await fn.body(Lua(in: state), LuaArgs(args))
+                let L = Lua(in: state)
+                return try await fn.body(L, LuaArgs(args, state: L))
         }
     }
 

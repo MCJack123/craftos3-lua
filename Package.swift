@@ -26,7 +26,7 @@ let package = Package(
             targets: ["LuaC"])
     ],
     dependencies: [
-        .package(name: "Math", path: "Packages/Math"),
+        .package(name: "LibC", path: "Packages/LibC"),
         .package(url: "https://github.com/apple/swift-syntax.git", from: "509.0.0"),
     ],
     targets: [
@@ -34,10 +34,10 @@ let package = Package(
         // Targets can depend on other targets in this package and products from dependencies.
         .target(
             name: "Lua",
-            dependencies: ["Math", "LuaMacros"]),
+            dependencies: ["LibC", "LuaMacros"]),
         .target(
             name: "LuaLib",
-            dependencies: ["Lua", "Math"]),
+            dependencies: ["Lua", "LibC"]),
         .executableTarget(
             name: "LuaC",
             dependencies: ["Lua", "LuaLib"]),

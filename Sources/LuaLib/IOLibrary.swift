@@ -1,5 +1,5 @@
 import Lua
-import Math
+import LibC
 
 typealias FileDescriptor = UnsafeMutablePointer<FILE>
 
@@ -116,7 +116,7 @@ internal class FileObject {
             case "line": cmode = _IOLBF
             default: throw Lua.error(in: state, message: "bad argument #1 (invalid option '\(mode)')")
         }
-        Math.setvbuf(handle, nil, cmode, size ?? Int(BUFSIZ))
+        LibC.setvbuf(handle, nil, cmode, size ?? Int(BUFSIZ))
     }
 
     public func seek(_ state: Lua, whence: String?, offset: Int?) throws -> Int {
@@ -159,9 +159,9 @@ internal class FileObject {
 
 @LuaLibrary(named: "io")
 internal class IOLibrary {
-    public static let stdin = FileObject(Math.stdin)
-    public static let stdout = FileObject(Math.stdout)
-    public static let stderr = FileObject(Math.stderr)
+    public static let stdin = FileObject(LibC.stdin)
+    public static let stdout = FileObject(LibC.stdout)
+    public static let stderr = FileObject(LibC.stderr)
 
     private var inputHandle = stdin
     private var outputHandle = stdout
@@ -207,7 +207,7 @@ internal class IOLibrary {
 
     public func lines(_ state: Lua, args: LuaArgs) throws -> LuaValue {
         if args.count == 0 {
-            return inputHandle.lines(state, LuaArgs([]))
+            return inputHandle.lines(state, LuaArgs([], state: state))
         }
         if let fp = fopen(try args.checkString(at: 1), "r") {
             let handle = FileObject(fp)
@@ -269,7 +269,7 @@ internal class IOLibrary {
     }
 
     public func popen(_ state: Lua, path: String, mode: String?) throws -> [LuaValue] {
-        if let fp = Math.popen(path, mode ?? "r") {
+        if let fp = LibC.popen(path, mode ?? "r") {
             return [.object(FileObject(fp))]
         } else {
             return [.nil, .string(.string(String(cString: strerror(__errno_location().pointee))))]
@@ -281,7 +281,7 @@ internal class IOLibrary {
     }
 
     public func tmpfile() -> LuaValue {
-        return .object(FileObject(Math.tmpfile()))
+        return .object(FileObject(LibC.tmpfile()))
     }
 
     public func type(value: LuaValue) -> String? {

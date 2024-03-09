@@ -229,11 +229,11 @@ assert(not load(function () return true end))
 
 -- small bug
 local t = {nil, "return ", "3"}
-f, msg = load(function () return table.remove(t, 1) end)
+f = assert(load(function () return table.remove(t, 1) end))
 assert(f() == nil)   -- should read the empty chunk
 
 -- another small bug (in 5.2.1)
-f = load(string.dump(function () return 1 end), nil, "b", {})
+f = assert(load(string.dump(function () return 1 end), nil, "b", {}))
 assert(type(f) == "function" and f() == 1)
 
 

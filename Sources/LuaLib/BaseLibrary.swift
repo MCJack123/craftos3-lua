@@ -73,12 +73,15 @@ internal struct BaseLibrary: LuaLibrary {
                 .number(0)
             ]
         }
-        throw Lua.argumentError(at: 1, in: args, expected: "table")
+        throw state.argumentError(at: 1, in: args, expected: "table")
     }
 
     public let load = LuaSwiftFunction {state, args in
-        let chunk = try args.checkString(at: 1)
-        let name = args[2] != .nil ? try args.checkString(at: 2) : nil
+        switch args[1] {
+            case .string, .function: break
+            default: throw state.argumentError(at: 1, in: args, expected: "string or function")
+        }
+        let name = args[2] != .nil ? try args.checkBytes(at: 2) : nil
         let modestr = try args.checkString(at: 3, default: "bt")
         let env = try args.checkTable(at: 4, default: state.state.globalTable)
         let mode: LuaLoad.LoadMode
@@ -89,7 +92,16 @@ internal struct BaseLibrary: LuaLibrary {
             default: throw Lua.error(in: state, message: "bad argument #3 (invalid mode)")
         }
         do {
-            return [.function(.lua(try await LuaLoad.load(from: chunk, named: name, mode: mode, environment: env)))]
+            switch args[1] {
+                case .string(let chunk): return [.function(.lua(try await LuaLoad.load(from: chunk.bytes, named: name, mode: mode, environment: env)))]
+                case .function(let fn): return [.function(.lua(try await LuaLoad.load(using: {() -> [UInt8]? in
+                        guard let v = try await fn.call(in: state.thread, with: []).first?.optional else {return nil}
+                        guard case let .string(s) = v else {throw Lua.LuaError.runtimeError(message: "reader function must return a string")}
+                        if s.string == "" {return nil}
+                        return s.bytes
+                    }, named: name, mode: mode, environment: env)))]
+                default: Swift.assert(false); return [] // should never happen
+            }
         } catch let error as LuaParser.Error {
             switch error {
                 case .syntaxError(let message, let token):
@@ -103,13 +115,16 @@ internal struct BaseLibrary: LuaLibrary {
             switch error {
                 case .runtimeError(let message):
                     return [.nil, .string(.string(message))]
-                case .luaError(let message):
-                    return [.nil, message]
-                case .vmError:
-                    return [.nil, .string(.string("vm error"))]
                 default:
-                    return [.nil, .string(.string(error.localizedDescription))]
+                    throw error
             }
+        } catch let error as LuaInterpretedFunction.DecodeError {
+            switch error {
+                case .invalidBytecode:
+                    return [.nil, .string(.string("invalid bytecode"))]
+            }
+        } catch LuaThread.CoroutineError.cancel {
+            throw LuaThread.CoroutineError.cancel
         } catch let error {
             return [.nil, .string(.string(error.localizedDescription))]
         }
@@ -149,6 +164,8 @@ internal struct BaseLibrary: LuaLibrary {
                 case .runtimeError(let msg): return [.boolean(false), .string(.string(msg))]
                 default: return [.boolean(false), .string(.string("Internal VM error"))]
             }
+        } catch LuaThread.CoroutineError.cancel {
+            throw LuaThread.CoroutineError.cancel
         } catch {
             return [.boolean(false), .string(.string(String(describing: error)))]
         }
@@ -172,7 +189,7 @@ internal struct BaseLibrary: LuaLibrary {
         switch args[1] {
             case .string(let str): return [.number(Double(str.string.count))]
             case .table(let tab): return [.number(Double(tab.count))]
-            default: throw Lua.argumentError(at: 1, in: args, expected: "table or string")
+            default: throw state.argumentError(at: 1, in: args, expected: "table or string")
         }
     }
 
@@ -201,7 +218,7 @@ internal struct BaseLibrary: LuaLibrary {
                     }
                 }
                 tab.metatable = mt
-            default: throw Lua.argumentError(at: 2, in: args, expected: "table")
+            default: throw state.argumentError(at: 2, in: args, expected: "table")
         }
         return [.table(tab)]
     }
@@ -267,15 +284,21 @@ internal struct BaseLibrary: LuaLibrary {
                 var res = try await err.call(in: state.thread, with: [errmsg])
                 res.insert(.boolean(false), at: 0)
                 return res
+            } catch LuaThread.CoroutineError.cancel {
+                throw LuaThread.CoroutineError.cancel
             } catch {
                 return [.boolean(false), .string(.string("error in error handling"))]
             }
+        } catch LuaThread.CoroutineError.cancel {
+            throw LuaThread.CoroutineError.cancel
         } catch {
             let errmsg = LuaValue.string(.string(String(describing: error)))
             do {
                 var res = try await err.call(in: state.thread, with: [errmsg])
                 res.insert(.boolean(false), at: 0)
                 return res
+            } catch LuaThread.CoroutineError.cancel {
+                throw LuaThread.CoroutineError.cancel
             } catch {
                 return [.boolean(false), .string(.string("error in error handling"))]
             }

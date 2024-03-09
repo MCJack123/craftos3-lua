@@ -68,7 +68,7 @@ public class LuaInterpretedFunction: Hashable {
     internal let stackSize: UInt8
     internal let numParams: UInt8
     internal let isVararg: UInt8
-    internal let name: String
+    internal let name: [UInt8]
     internal let lineDefined: Int32
     internal let lastLineDefined: Int32
     internal let lineinfo: [Int32]
@@ -86,7 +86,7 @@ public class LuaInterpretedFunction: Hashable {
         stackSize: UInt8,
         numParams: UInt8,
         isVararg: UInt8,
-        name: String,
+        name: [UInt8],
         lineDefined: Int32,
         lastLineDefined: Int32,
         lineinfo: [Int32],
@@ -106,15 +106,15 @@ public class LuaInterpretedFunction: Hashable {
         self.locals = locals
     }
 
-    public convenience init(decoding data: UnsafeRawBufferPointer) throws {
+    public convenience init(decoding data: UnsafeRawBufferPointer, named name: [UInt8]? = nil) throws {
         if !data.prefix(18).elementsEqual([0x1B, 0x4C, 0x75, 0x61, 0x52, 0x00, 0x01, 0x04, 0x04, 0x04, 0x08, 0x00, 0x19, 0x93, 0x0D, 0x0A, 0x1A, 0x0A]) {
             throw DecodeError.invalidBytecode
         }
         var pos = 18
-        try self.init(data: data, pos: &pos)
+        try self.init(data: data, pos: &pos, name: name)
     }
 
-    private init(data: UnsafeRawBufferPointer, pos: inout Int) throws {
+    private init(data: UnsafeRawBufferPointer, pos: inout Int, name: [UInt8]? = nil) throws {
         lineDefined = data.loadUnaligned(fromByteOffset: pos, as: Int32.self)
         lastLineDefined = data.loadUnaligned(fromByteOffset: pos + 4, as: Int32.self)
         numParams = data[pos + 8]
@@ -155,7 +155,8 @@ public class LuaInterpretedFunction: Hashable {
             _pos += 2
             return retval
         }
-        name = readString(data, &pos)
+        let filename = readString(data, &pos)
+        self.name = name ?? filename.bytes
         lineinfo = readList(data, &pos) {_data, _pos in
             defer {_pos += 4}
             return _data.loadUnaligned(fromByteOffset: _pos, as: Int32.self)
@@ -217,7 +218,7 @@ public class LuaInterpretedFunction: Hashable {
             output.append(.byte(v.0))
             output.append(.byte(v.1))
         }
-        output.append(.string(name))
+        output.append(.string(name.string))
         output.append(.int(Int32(lineinfo.count)))
         for v in lineinfo {output.append(.int(v))}
         output.append(.int(Int32(locals.count)))
