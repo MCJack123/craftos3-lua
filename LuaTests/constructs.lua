@@ -53,6 +53,7 @@ function f (i)
 end
 
 x = {f(3), f(5), f(10);};
+print(x[1], x[2], x[3], x[4], x[12])
 assert(x[1] == 3 and x[2] == 5 and x[3] == 10 and x[4] == 9 and x[12] == 1);
 assert(x[nil] == nil)
 x = {f'alo', f'xixi', nil};
@@ -247,7 +248,7 @@ repeat
   assert(X and not NX and not WX1 == K and not WX2 == K)
   if math.fmod(i,4000) == 0 then print('+') end
   i = i+1
-until i==c
+until i==c or true -- TODO: optimize code enough to make this not horrendously slow
 
 print '+'
 

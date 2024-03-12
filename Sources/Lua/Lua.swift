@@ -24,10 +24,13 @@ public class Lua {
     @frozen
     public struct Debug {
         public enum NameType {
+            case constant
             case global
-            case local
-            case method
             case field
+            case forIterator
+            case local
+            case metamethod
+            case method
             case upvalue
             case unknown
         }
@@ -116,12 +119,191 @@ public class Lua {
         return self.error("bad argument #\(index) (expected \(type), got \(args[index].type))", at: 1)
     }
 
-    private func info(with options: Debug.InfoFlags, in ci: CallInfo?, for function: LuaFunction, at level: Int?) -> Debug {
+    /*
+    ** {======================================================
+    ** Symbolic Execution (from PUC Lua)
+    ** =======================================================
+    */
+
+    private static func kname(_ p: LuaInterpretedFunction, _ pc: Int, _ c: UInt16) -> String {
+        if c > 255 {
+            let kvalue = p.constants[c-256]
+            if case let .string(s) = kvalue {
+                return s.string
+            }
+        } else {
+            if let (name, what) = getobjname(p, pc, UInt8(c)), what == .constant {
+                return name
+            }
+        }
+        return "?"
+    }
+    
+    private static func filterpc(_ pc: Int, _ jmptarget: Int) -> Int? {
+        if pc < jmptarget {
+            return nil
+        }
+        return pc
+    }
+
+    private static func findsetreg(_ p: LuaInterpretedFunction, _ lastpc: Int, _ reg: UInt8) -> Int? {
+        var setreg: Int? = nil
+        var jmptarget = 0
+        for pc in 0..<lastpc {
+            let i = p.opcodes[pc]
+            switch i {
+                case .iABC(let op, let a, let b, _):
+                    switch op {
+                        case .LOADNIL:
+                            if a <= reg && reg <= UInt16(a) + b {
+                                setreg = filterpc(pc, jmptarget)
+                            }
+                        case .TFORCALL:
+                            if reg >= a + 2 {
+                                setreg = filterpc(pc, jmptarget)
+                            }
+                        case .CALL, .TAILCALL:
+                            if reg >= a {
+                                setreg = filterpc(pc, jmptarget)
+                            }
+                        case .MOVE, .LOADBOOL,.GETUPVAL, .GETTABUP, .GETTABLE,
+                             .NEWTABLE, .SELF, .ADD, .SUB, .MUL, .DIV, .MOD, .POW,
+                             .UNM, .NOT, .LEN, .CONCAT, .TEST, .TESTSET, .VARARG:
+                            if reg == a {
+                                setreg = filterpc(pc, jmptarget)
+                            }
+                        default: break
+                    }
+                case .iABx(_, let a, _):
+                    if reg == a {
+                        setreg = filterpc(pc, jmptarget)
+                    }
+                case .iAsBx(let op, let a, let b):
+                    switch op {
+                        case .JMP:
+                            let dest = pc + 1 + Int(b)
+                            if pc < dest && dest <= lastpc && dest > jmptarget {
+                                jmptarget = dest
+                            }
+                        case .FORLOOP, .FORPREP, .TFORLOOP:
+                            if reg == a {
+                                setreg = filterpc(pc, jmptarget)
+                            }
+                        default: break
+                    }
+                case .iAx: break
+            }
+        }
+        return setreg
+    }
+
+    private static func getlocalname(_ f: LuaInterpretedFunction, _ n: UInt8, _ pc: Int) -> String? {
+        var local_number = n
+        var i = 0
+        while i < f.locals.count && f.locals[i].1 < pc {
+            if pc < f.locals[i].2 {
+                local_number -= 1
+                if local_number == 0 {
+                    return f.locals[i].0
+                }
+            }
+            i += 1
+        }
+        return nil
+    }
+
+    private static func getobjname(_ p: LuaInterpretedFunction, _ lastpc: Int, _ reg: UInt8) -> (String, Debug.NameType)? {
+        if let name = getlocalname(p, reg + 1, lastpc) {
+            return (name, .local)
+        }
+        if let pc = findsetreg(p, lastpc, reg) {
+            let i = p.opcodes[pc]
+            switch i {
+                case .iABC(let op, let a, let b, let c):
+                    switch op {
+                        case .MOVE:
+                            if b < a {
+                                return getobjname(p, pc, UInt8(b))
+                            }
+                        case .GETTABUP, .GETTABLE:
+                            let k = c, t = b
+                            let vn = op == .GETTABLE ? getlocalname(p, UInt8(t + 1), pc) :
+                                (t < p.upvalueNames.count ? p.upvalueNames[t] ?? "?" : "?")
+                            let name = kname(p, pc, k)
+                            return (name, vn == "_ENV" ? .global : .field)
+                        case .GETUPVAL:
+                            return (b < p.upvalueNames.count ? p.upvalueNames[b] ?? "?" : "?", .upvalue)
+                        case .SELF:
+                            return (kname(p, pc, c), .method)
+                        default: break
+                    }
+                case .iABx(let op, let a, let bx):
+                    switch op {
+                        case .LOADK, .LOADKX:
+                            let b: UInt32
+                            if op == .LOADKX {
+                                guard case let .iAx(.EXTRAARG, ax) = p.opcodes[pc+1] else {break}
+                                b = ax
+                            } else {
+                                b = bx
+                            }
+                            if case let .string(s) = p.constants[b] {
+                                return (s.string, .constant)
+                            }
+                        default: break
+                    }
+                default: break
+            }
+        }
+        return nil
+    }
+
+    private static func getfuncname(_ ci: CallInfo) -> (String, Debug.NameType)? {
+        guard case let .lua(cl) = ci.function else {return nil}
+        let p = cl.proto
+        let pc = ci.savedpc - 1
+        let i = p.opcodes[pc]
+        switch i {
+            case .iABC(let op, let a, _, _):
+                switch op {
+                    case .CALL, .TAILCALL:
+                        return getobjname(p, pc, a)
+                    case .TFORCALL:
+                        return ("for iterator", .forIterator)
+                    case .SELF, .GETTABUP, .GETTABLE:
+                        return ("__index", .metamethod)
+                    case .SETTABUP, .SETTABLE:
+                        return ("__newindex", .metamethod)
+                    case .EQ: return ("__eq", .metamethod)
+                    case .ADD: return ("__add", .metamethod)
+                    case .SUB: return ("__sub", .metamethod)
+                    case .MUL: return ("__mul", .metamethod)
+                    case .DIV: return ("__div", .metamethod)
+                    case .MOD: return ("__mod", .metamethod)
+                    case .POW: return ("__pow", .metamethod)
+                    case .UNM: return ("__unm", .metamethod)
+                    case .LEN: return ("__len", .metamethod)
+                    case .LT: return ("__lt", .metamethod)
+                    case .LE: return ("__le", .metamethod)
+                    case .CONCAT: return ("__concat", .metamethod)
+                    default: return nil
+                }
+            default: return nil
+        }
+    }
+
+    /* }====================================================== */
+
+    private func info(with options: Debug.InfoFlags, in ci: CallInfo?, previous: CallInfo?, for function: LuaFunction, at level: Int?) -> Debug {
         var retval = Debug()
         if options.contains(.name) {
-            // TODO
-            retval.name = "?"
-            retval.nameWhat = .unknown
+            if let ci = previous, let (name, what) = Lua.getfuncname(ci) {
+                retval.name = name
+                retval.nameWhat = what
+            } else {
+                retval.name = "?"
+                retval.nameWhat = .unknown
+            }
         }
         if options.contains(.source) {
             switch function {
@@ -144,8 +326,8 @@ public class Lua {
         if options.contains(.line) {
             switch function {
                 case .lua(let cl):
-                    if let ci = ci, ci.savedpc < cl.proto.lineinfo.count {
-                        retval.currentLine = Int(cl.proto.lineinfo[ci.savedpc])
+                    if let ci = ci, ci.savedpc-1 < cl.proto.lineinfo.count {
+                        retval.currentLine = Int(cl.proto.lineinfo[ci.savedpc-1])
                     } else {
                         retval.currentLine = -1
                     }
@@ -191,11 +373,12 @@ public class Lua {
             return nil
         }
         let ci = thread.callStack[thread.callStack.count - level - 1]
-        return info(with: options, in: ci, for: ci.function, at: level)
+        let previous = level == thread.callStack.count - 1 ? nil : thread.callStack[thread.callStack.count - level - 2]
+        return info(with: options, in: ci, previous: previous, for: ci.function, at: level)
     }
 
     public func info(for function: LuaFunction, with options: Debug.InfoFlags = .all) -> Debug {
-        return info(with: options, in: nil, for: function, at: nil)
+        return info(with: options, in: nil, previous: nil, for: function, at: nil)
     }
 
     public func local(at level: Int, index: Int) throws -> (String, LuaValue)? {

@@ -194,7 +194,11 @@ public enum LuaValue: Hashable {
         switch self {
             case .nil: return "nil"
             case .boolean(let val): return val ? "true" : "false"
-            case .number(let val): return String(val)
+            case .number(let val):
+                if let i = Int(exactly: val) {
+                    return String(i)
+                }
+                return String(val)
             case .string(let val): return val.string
             case .function(let val):
                 switch val {
@@ -211,7 +215,11 @@ public enum LuaValue: Hashable {
         switch self {
             case .nil: return "nil"
             case .boolean(let val): return val ? "true" : "false"
-            case .number(let val): return String(val).bytes
+            case .number(let val):
+                if let i = Int(exactly: val) {
+                    return String(i).bytes
+                }
+                return String(val).bytes
             case .string(let val): return val.bytes
             case .function(let val):
                 switch val {

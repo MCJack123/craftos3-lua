@@ -8,8 +8,9 @@ internal struct CoroutineLibrary: LuaLibrary {
     }
 
     public let resume = LuaSwiftFunction {state, args in
+        let th = try args.checkThread(at: 1)
         do {
-            var res = try await args.checkThread(at: 1).resume(in: state, with: [LuaValue](args[2...]))
+            var res = try await th.resume(in: state, with: [LuaValue](args[2...]))
             res.insert(.boolean(true), at: 0)
             return res
         } catch let error as Lua.LuaError {
@@ -17,6 +18,15 @@ internal struct CoroutineLibrary: LuaLibrary {
                 case .luaError(let msg): return [.boolean(false), msg]
                 case .runtimeError(let msg): return [.boolean(false), .string(.string(msg))]
                 default: return [.boolean(false), .string(.string("Internal VM error"))]
+            }
+        } catch let error as LuaThread.CoroutineError {
+            switch error {
+                case .cancel:
+                    throw LuaThread.CoroutineError.cancel
+                case .noCoroutine:
+                    return [.boolean(false), .string(.string("no coroutine"))] // this should never happen
+                case .notSuspended:
+                    return [.boolean(false), .string(.string("cannot resume a \(String(describing: th.state)) coroutine"))]
             }
         } catch {
             return [.boolean(false), .string(.string(String(describing: error)))]
@@ -28,12 +38,7 @@ internal struct CoroutineLibrary: LuaLibrary {
     }
 
     public let status = LuaSwiftFunction {state, args in
-        switch try args.checkThread(at: 1).state {
-            case .suspended: return [.string(.string("suspended"))]
-            case .running: return [.string(.string("running"))]
-            case .normal: return [.string(.string("normal"))]
-            case .dead: return [.string(.string("dead"))]
-        }
+        return [.string(.string(String(describing: try args.checkThread(at: 1).state)))]
     }
 
     public let wrap = LuaSwiftFunction {state, args in
@@ -46,5 +51,4 @@ internal struct CoroutineLibrary: LuaLibrary {
     public let yield = LuaSwiftFunction {state, args in
         return try await LuaThread.yield(in: state, with: args.args)
     }
-
 }

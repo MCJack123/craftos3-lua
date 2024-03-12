@@ -113,12 +113,15 @@ internal class DebugLibrary {
         if types.contains(.name) {
             tab["name"] = .string(.string(db.name!))
             switch db.nameWhat! {
+                case .constant: tab["namewhat"] = .string(.string("constant"))
                 case .field: tab["namewhat"] = .string(.string("field"))
+                case .forIterator: tab["namewhat"] = .string(.string("for iterator"))
                 case .global: tab["namewhat"] = .string(.string("global"))
                 case .local: tab["namewhat"] = .string(.string("local"))
+                case .metamethod: tab["namewhat"] = .string(.string("metamethod"))
                 case .method: tab["namewhat"] = .string(.string("method"))
                 case .upvalue: tab["namewhat"] = .string(.string("upvalue"))
-                case .unknown: tab["namewhat"] = .string(.string("unknown"))
+                case .unknown: tab["namewhat"] = .string(.string(""))
             }
         }
         if types.contains(.source) {
@@ -281,14 +284,17 @@ internal class DebugLibrary {
             if let info = st.info(at: level, with: [.name, .source, .line]) {
                 let namewhat: String
                 switch info.nameWhat! {
+                    case .constant: namewhat = "constant"
                     case .field: namewhat = "field"
+                    case .forIterator: namewhat = "for iterator"
                     case .global: namewhat = "global"
                     case .local: namewhat = "local"
+                    case .metamethod: namewhat = "metamethod"
                     case .method: namewhat = "method"
                     case .upvalue: namewhat = "upvalue"
-                    case .unknown: namewhat = "unknown"
+                    case .unknown: namewhat = "function"
                 }
-                retval += "  \(info.source!):\(info.currentLine!): in \(namewhat) '\(info.name!)'\n"
+                retval += "  \(info.source!.string):\(info.currentLine!): in \(namewhat) '\(info.name!)'\n"
             } else {
                 break
             }

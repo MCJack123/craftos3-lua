@@ -32,7 +32,7 @@ internal class LuaCode {
         private var isVararg: UInt8 = 0
         private var name: [UInt8] = ""
         private var lineDefined: Int32 = 0
-        private var lastLineDefined: Int32 = 0
+        fileprivate var lastLineDefined: Int32 = 0
         private var lineinfo = [Int32]()
         fileprivate var localinfo = [LocalInfo]()
         private var labels = [String: Int]()
@@ -54,7 +54,9 @@ internal class LuaCode {
             self.parent = parent
             self.name = parent.fn.name
             self.numParams = UInt8(args)
+            self.stackSize = self.numParams
             self.isVararg = vararg ? 1 : 0
+            self.lineDefined = Int32(parent.fn.line)
             root = Block(for: self)
         }
 
@@ -141,9 +143,23 @@ internal class LuaCode {
                         if let env = upvalues["_ENV"] {
                             return (.global, env.0)
                         } else {
-                            upvalues["_ENV"] = (nextUpvalue, false, idx)
-                            nextUpvalue += 1
-                            return (.global, nextUpvalue - 1)
+                            let (etype, eidx) = parent.variable(named: "_ENV")
+                            switch etype {
+                                case .local:
+                                    upvalues["_ENV"] = (nextUpvalue, true, eidx)
+                                    nextUpvalue += 1
+                                    parent.fn.closureLevel = min(parent.fn.closureLevel ?? 10000, eidx)
+                                    return (.global, nextUpvalue - 1)
+                                case .upvalue:
+                                    upvalues["_ENV"] = (nextUpvalue, false, eidx)
+                                    nextUpvalue += 1
+                                    return (.global, nextUpvalue - 1)
+                                case .global:
+                                    // this should never happen
+                                    upvalues["_ENV"] = (nextUpvalue, false, idx)
+                                    nextUpvalue += 1
+                                    return (.global, nextUpvalue - 1)
+                            }
                         }
                 }
             } else if let env = upvalues["_ENV"] {
@@ -199,6 +215,7 @@ internal class LuaCode {
         fileprivate var locals = [String: (Int, LocalInfo)]()
         fileprivate var state = State.normal
         private var start: Int? = nil
+        private var whileStart: Int? = nil
         private var ifJumps = [Int]()
         private var loopBreaks = [Int]()
         private var childBlock: Block? = nil
@@ -494,17 +511,17 @@ internal class LuaCode {
                         case .mod: op = .MOD
                         case .pow: op = .POW
                         case .eq, .ne, .gt, .lt, .ge, .le:
-                            let flip: Bool
+                            let flip: Bool, op: LuaOpcode.Operation, a: UInt8
                             switch oper {
-                                case .eq: op = .EQ; flip = false
-                                case .ne: op = .EQ; flip = true
-                                case .lt: op = .LT; flip = false
-                                case .ge: op = .LT; flip = true
-                                case .le: op = .LE; flip = false
-                                case .gt: op = .LE; flip = true
+                                case .eq: op = .EQ; flip = false; a = 1
+                                case .ne: op = .EQ; flip = false; a = 0
+                                case .lt: op = .LT; flip = false; a = 1
+                                case .ge: op = .LE; flip = true;  a = 1
+                                case .le: op = .LE; flip = false; a = 1
+                                case .gt: op = .LT; flip = true;  a = 1
                                 default: assert(false); return
                             }
-                            _ = fn.add(opcode: .iABC(op, UInt8(flip ? 0 : 1), lidx, ridx))
+                            _ = fn.add(opcode: .iABC(op, a, flip ? ridx : lidx, flip ? lidx : ridx))
                             _ = fn.add(opcode: .iABC(.LOADBOOL, UInt8(idx), UInt16(1), UInt16(1)))
                             _ = fn.add(opcode: .iABC(.LOADBOOL, UInt8(idx), UInt16(0), UInt16(0)))
                             return
@@ -709,17 +726,17 @@ internal class LuaCode {
                     case .eq, .ne, .gt, .lt, .ge, .le:
                         let lidx = rk(for: left, at: level)
                         let ridx = rk(for: right, at: level + 1)
-                        let flip: Bool, op: LuaOpcode.Operation
+                        let flip: Bool, op: LuaOpcode.Operation, a: UInt8
                         switch oper {
-                            case .eq: op = .EQ; flip = false
-                            case .ne: op = .EQ; flip = true
-                            case .lt: op = .LT; flip = false
-                            case .ge: op = .LT; flip = true
-                            case .le: op = .LE; flip = false
-                            case .gt: op = .LE; flip = true
+                            case .eq: op = .EQ; flip = false; a = 0
+                            case .ne: op = .EQ; flip = false; a = 1
+                            case .lt: op = .LT; flip = false; a = 0
+                            case .ge: op = .LE; flip = true;  a = 0
+                            case .le: op = .LE; flip = false; a = 0
+                            case .gt: op = .LT; flip = true;  a = 0
                             default: assert(false); return Block(in: self)
                         }
-                        _ = fn.add(opcode: .iABC(op, UInt8(flip ? 1 : 0), lidx, ridx))
+                        _ = fn.add(opcode: .iABC(op, a, flip ? ridx : lidx, flip ? lidx : ridx))
                         start = fn.add(opcode: .iAsBx(.JMP, 0, 0)) - 1
                         state = .if
                         childBlock = Block(in: self)
@@ -769,17 +786,17 @@ internal class LuaCode {
                     case .eq, .ne, .gt, .lt, .ge, .le:
                         let lidx = rk(for: left, at: level)
                         let ridx = rk(for: right, at: level + 1)
-                        let flip: Bool, op: LuaOpcode.Operation
+                        let flip: Bool, op: LuaOpcode.Operation, a: UInt8
                         switch oper {
-                            case .eq: op = .EQ; flip = false
-                            case .ne: op = .EQ; flip = true
-                            case .lt: op = .LT; flip = false
-                            case .ge: op = .LT; flip = true
-                            case .le: op = .LE; flip = false
-                            case .gt: op = .LE; flip = true
+                            case .eq: op = .EQ; flip = false; a = 0
+                            case .ne: op = .EQ; flip = false; a = 1
+                            case .lt: op = .LT; flip = false; a = 0
+                            case .ge: op = .LE; flip = true;  a = 0
+                            case .le: op = .LE; flip = false; a = 0
+                            case .gt: op = .LT; flip = true;  a = 0
                             default: assert(false); return Block(in: self)
                         }
-                        _ = fn.add(opcode: .iABC(op, UInt8(flip ? 1 : 0), lidx, ridx))
+                        whileStart = fn.add(opcode: .iABC(op, a, flip ? ridx : lidx, flip ? lidx : ridx)) - 1
                         start = fn.add(opcode: .iAsBx(.JMP, 0, 0)) - 1
                         state = .while
                         childBlock = Block(in: self)
@@ -788,8 +805,9 @@ internal class LuaCode {
                     default: break
                 }
             }
+            whileStart = fn.top
             expression(expr, to: level)
-            _ = fn.add(opcode: .iABC(.TEST, UInt8(level), 0, 0))
+            _ = fn.add(opcode: .iABC(.TEST, UInt8(level), 0, 0)) 
             start = fn.add(opcode: .iAsBx(.JMP, 0, 0)) - 1
             state = .while
             loopBreaks = []
@@ -801,7 +819,7 @@ internal class LuaCode {
             assert(state == .while)
             if let start = start {
                 let close = childBlock!.level > level ? fn.close(to: level) : 0
-                let end = fn.add(opcode: .iAsBx(.JMP, close, Int32(start - fn.top - 2))) - 1
+                let end = fn.add(opcode: .iAsBx(.JMP, close, Int32(whileStart! - fn.top - 1))) - 1
                 fn.modify(at: start, opcode: .iAsBx(.JMP, 0, Int32(end - start)))
                 for idx in loopBreaks {
                     fn.modify(at: idx, opcode: .iAsBx(.JMP, close, Int32(end - idx)))
@@ -829,19 +847,19 @@ internal class LuaCode {
                         case .eq, .ne, .gt, .lt, .ge, .le:
                             let lidx = repeatBlock.rk(for: left, at: repeatBlock.level)
                             let ridx = repeatBlock.rk(for: right, at: repeatBlock.level + 1)
-                            let flip: Bool, op: LuaOpcode.Operation
+                            let flip: Bool, op: LuaOpcode.Operation, a: UInt8
                             switch oper {
-                                case .eq: op = .EQ; flip = false
-                                case .ne: op = .EQ; flip = true
-                                case .lt: op = .LT; flip = false
-                                case .ge: op = .LT; flip = true
-                                case .le: op = .LE; flip = false
-                                case .gt: op = .LE; flip = true
+                                case .eq: op = .EQ; flip = false; a = 0
+                                case .ne: op = .EQ; flip = false; a = 1
+                                case .lt: op = .LT; flip = false; a = 0
+                                case .ge: op = .LE; flip = true;  a = 0
+                                case .le: op = .LE; flip = false; a = 0
+                                case .gt: op = .LT; flip = true;  a = 0
                                 default: assert(false); return
                             }
-                            _ = fn.add(opcode: .iABC(op, UInt8(flip ? 1 : 0), lidx, ridx))
+                            _ = fn.add(opcode: .iABC(op, a, flip ? ridx : lidx, flip ? lidx : ridx))
                             let close = childBlock!.level > level ? fn.close(to: level) : 0
-                            let end = fn.add(opcode: .iAsBx(.JMP, close, Int32(start! - fn.top - 1)))
+                            let end = fn.add(opcode: .iAsBx(.JMP, close, Int32(start! - fn.top - 1))) - 1
                             for idx in loopBreaks {
                                 fn.modify(at: idx, opcode: .iAsBx(.JMP, close, Int32(end - idx)))
                             }
@@ -856,7 +874,7 @@ internal class LuaCode {
                 repeatBlock.expression(expr, to: repeatBlock.level)
                 _ = fn.add(opcode: .iABC(.TEST, UInt8(repeatBlock.level), 0, 0))
                 let close = childBlock!.level > level ? fn.close(to: level) : 0
-                let end = fn.add(opcode: .iAsBx(.JMP, close, Int32(start! - fn.top - 1)))
+                let end = fn.add(opcode: .iAsBx(.JMP, close, Int32(start! - fn.top - 1))) - 1
                 for idx in loopBreaks {
                     fn.modify(at: idx, opcode: .iAsBx(.JMP, close, Int32(end - idx)))
                 }
@@ -889,6 +907,13 @@ internal class LuaCode {
                 }
                 _ = self.fn.add(opcode: .iABC(.TAILCALL, UInt8(level), UInt16(vararg ? 0 : args.count + 1), 0))
                 return
+            }
+            if explist.count == 1, case let .prefixexp(.name(name)) = explist[0] {
+                let (type, idx) = variable(named: name)
+                if type == .local {
+                    _ = fn.add(opcode: .iABC(.RETURN, UInt8(idx), 2, 0))
+                    return
+                }
             }
             var vararg = false
             for (i, v) in explist.enumerated() {
@@ -1196,6 +1221,7 @@ internal class LuaCode {
                 throw LuaParser.Error.gotoError(message: "no visible label for goto")
             }
             block.return([])
+            block.fn.lastLineDefined = Int32(block.fn.line)
             if !blockStack.isEmpty {
                 block = blockStack.popLast()!
             }

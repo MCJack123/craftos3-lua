@@ -51,7 +51,7 @@ extension UInt8: ExpressibleByExtendedGraphemeClusterLiteral, ExpressibleByUnico
     }
 }
 
-public enum LuaString: Hashable, Comparable {
+public enum LuaString: Hashable, Comparable, CustomStringConvertible {
     case string([UInt8])
     case substring(ArraySlice<UInt8>)
     indirect case rope(LuaString, LuaString)
@@ -86,5 +86,9 @@ public enum LuaString: Hashable, Comparable {
 
     public static func <= (lhs: LuaString, rhs: LuaString) -> Bool {
         return lhs.string <= rhs.string
+    }
+
+    public var description: String {
+        return string
     }
 }

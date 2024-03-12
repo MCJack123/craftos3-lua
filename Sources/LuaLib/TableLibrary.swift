@@ -23,7 +23,7 @@ internal struct TableLibrary: LuaLibrary {
             pos = try args.checkInt(at: 2)
             val = args[3]
         } else {
-            pos = t.count
+            pos = t.count + 1
             val = args[2]
         }
         var v = t[.number(Double(pos))]

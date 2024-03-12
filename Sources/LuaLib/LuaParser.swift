@@ -505,7 +505,11 @@ internal class LuaParser {
             while let op2 = ops.last, LuaParser.precedence[op2]! > LuaParser.precedence[op]! || (LuaParser.precedence[op2]! == LuaParser.precedence[op]! && !(op == .concat || op == .pow)) {
                 let right = out.removeLast()
                 let left = out.removeLast()
-                out.append(.binop(op2, left, right))
+                if op2 == .pow, case let .unop(op, v) = left {
+                    out.append(.unop(op, .binop(op2, v, right)))
+                } else {
+                    out.append(.binop(op2, left, right))
+                }
                 ops.removeLast()
             }
             ops.append(op)
@@ -551,6 +555,7 @@ internal class LuaParser {
             }
             try await consume(operator: .rparen)
         }
+        coder.line = line
         let idx = coder.function(with: args, vararg: vararg)
         try await block()
         try await consume(keyword: .end)

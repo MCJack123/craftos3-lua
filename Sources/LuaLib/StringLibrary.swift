@@ -82,7 +82,17 @@ internal struct StringLibrary: LuaLibrary {
         }
     }
 
-
+    public let format = LuaSwiftFunction {state, args in
+        // TODO
+        let format = try args.checkBytes(at: 1)
+        var index = 2
+        let (str, n) = try await StringMatch.gsub(in: format, replace: "%%[sd]", with: .function(.swift(LuaSwiftFunction {_state, _args in
+            let v = args[index]
+            index += 1
+            return [v]
+        })), max: nil, thread: state.thread)
+        return [.string(.string(str))]
+    }
 
     public let gmatch = LuaSwiftFunction {state, args in
         var ms = StringMatch.gmatch(in: try args.checkBytes(at: 1), for: try args.checkBytes(at: 2))

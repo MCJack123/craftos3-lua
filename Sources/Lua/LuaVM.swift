@@ -148,9 +148,20 @@ internal class LuaVM {
                                             }
                                     }
                                 case .CONCAT:
-                                    ci.stack[a] = .string(concat(strings: ci.stack[Int(b)...Int(c)]))
+                                    ci.stack[a] = try await concat(strings: ci.stack[Int(b)...Int(c)], in: state)
                                 case .EQ:
-                                    if (rkb == rkc) != (a != 0) {pc += 1}
+                                    let res: Bool
+                                    if rkb == rkc {
+                                        res = true
+                                    } else if rkb.type == rkc.type,
+                                        let mt = rkb.metatable(in: state.luaState)?[.Constants.__eq],
+                                        let mt2 = rkc.metatable(in: state.luaState)?[.Constants.__eq],
+                                        mt == mt2, case let .function(fn) = mt {
+                                        res = try await fn.call(in: state, with: [rkb, rkc]).first?.toBool ?? false
+                                    } else {
+                                        res = false
+                                    }
+                                    if res != (a != 0) {pc += 1}
                                 case .LT:
                                     let res: Bool
                                     if case let .number(nb) = rkb, case let .number(nc) = rkc {
@@ -182,11 +193,11 @@ internal class LuaVM {
                                         let v = try await fn.call(in: state, with: [rkb, rkc])
                                         res = v.first?.toBool ?? false
                                     } else if let mt = rkb.metatable(in: state.luaState)?[.Constants.__lt], case let .function(fn) = mt {
-                                        let v = try await fn.call(in: state, with: [rkb, rkc])
-                                        res = v.first?.toBool ?? false
+                                        let v = try await fn.call(in: state, with: [rkc, rkb])
+                                        res = !(v.first?.toBool ?? false)
                                     } else if let mt = rkc.metatable(in: state.luaState)?[.Constants.__lt], case let .function(fn) = mt {
-                                        let v = try await fn.call(in: state, with: [rkb, rkc])
-                                        res = v.first?.toBool ?? false
+                                        let v = try await fn.call(in: state, with: [rkc, rkb])
+                                        res = !(v.first?.toBool ?? false)
                                     } else if case .number = rkb {
                                         throw Lua.error(in: state, message: "attempt to compare a \(rkc.type) value")
                                     } else {
@@ -497,11 +508,37 @@ internal class LuaVM {
         }
     }
 
-    internal static func concat(strings: ArraySlice<LuaValue>) -> LuaString {
+    private static func concat(left: LuaValue, right: LuaValue, in state: LuaThread) async throws -> LuaValue {
+        if case let .string(ls) = left {
+            if case let .string(rs) = right {
+                return .string(.rope(ls, rs))
+            } else if case .number = right {
+                return .string(.rope(ls, .string(right.toString)))
+            }
+        } else if case .number = left {
+            if case let .string(rs) = right {
+                return .string(.rope(.string(left.toString), rs))
+            } else if case .number = right {
+                return .string(.rope(.string(left.toString), .string(right.toString)))
+            }
+        }
+        if let mt = left.metatable(in: state.luaState)?[.Constants.__concat].optional ?? right.metatable(in: state.luaState)?[.Constants.__concat].optional {
+            switch mt {
+                case .function(let fn):
+                    let res = try await fn.call(in: state, with: [left, right])
+                    return res.first ?? .nil
+                default: throw Lua.error(in: state, message: "attempt to call a \(mt.type) value")
+            }
+        }
+        throw Lua.error(in: state, message: "attempt to concatenate a \(left.type == "string" || left.type == "number" ? right.type : left.type) value")
+    }
+
+    internal static func concat(strings: ArraySlice<LuaValue>, in state: LuaThread) async throws -> LuaValue {
         switch strings.count {
-            case 1: return .string(strings.first!.toString)
-            case 2: return .rope(.string(strings.first!.toString), .string(strings[strings.index(after: strings.startIndex)].toString))
-            default: return .rope(concat(strings: strings[strings.startIndex..<strings.startIndex.advanced(by: strings.count/2)]), concat(strings: strings[strings.startIndex.advanced(by: strings.count/2)...]))
+            case 1: return strings.first!
+            case 2: return try await concat(left: strings.first!, right: strings[strings.index(after: strings.startIndex)], in: state)
+            //default: return try await concat(left: concat(strings: strings[strings.startIndex..<strings.startIndex.advanced(by: strings.count/2)], in: state), right: concat(strings: strings[strings.startIndex.advanced(by: strings.count/2)...], in: state), in: state)
+            default: return try await concat(left: strings.first!, right: concat(strings: strings[strings.index(after: strings.startIndex)...], in: state), in: state)
         }
     }
 }
