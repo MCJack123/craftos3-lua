@@ -83,7 +83,6 @@ internal struct BaseLibrary: LuaLibrary {
         }
         let name = args[2] != .nil ? try args.checkBytes(at: 2) : nil
         let modestr = try args.checkString(at: 3, default: "bt")
-        let env = try args.checkTable(at: 4, default: state.state.globalTable)
         let mode: LuaLoad.LoadMode
         switch modestr {
             case "b": mode = .binary
@@ -93,13 +92,13 @@ internal struct BaseLibrary: LuaLibrary {
         }
         do {
             switch args[1] {
-                case .string(let chunk): return [.function(.lua(try await LuaLoad.load(from: chunk.bytes, named: name, mode: mode, environment: env)))]
+                case .string(let chunk): return [.function(.lua(try await LuaLoad.load(from: chunk.bytes, named: name, mode: mode, environment: args[4].orElse(.table(state.state.globalTable)))))]
                 case .function(let fn): return [.function(.lua(try await LuaLoad.load(using: {() -> [UInt8]? in
                         guard let v = try await fn.call(in: state.thread, with: []).first?.optional else {return nil}
                         guard case let .string(s) = v else {throw Lua.LuaError.runtimeError(message: "reader function must return a string")}
                         if s.string == "" {return nil}
                         return s.bytes
-                    }, named: name, mode: mode, environment: env)))]
+                    }, named: name, mode: mode, environment: args[4].orElse(.table(state.state.globalTable)))))]
                 default: Swift.assert(false); return [] // should never happen
             }
         } catch let error as LuaParser.Error {
@@ -203,7 +202,7 @@ internal struct BaseLibrary: LuaLibrary {
         if args[1] == .string(.string("#")) {
             return [.number(Double(args.count - 1))]
         }
-        let idx = Int(try args.checkNumber(at: 1))
+        let idx = Int(try args.checkNumber(at: 1)) + 1
         return [LuaValue](args[idx...])
     }
 
@@ -270,7 +269,19 @@ internal struct BaseLibrary: LuaLibrary {
         let fn = try args.checkFunction(at: 1)
         let err = try args.checkFunction(at: 2)
         do {
-            var res = try await fn.call(in: state.thread, with: [LuaValue](args[3...]))
+            var res = try await fn.pcall(in: state.thread, with: [LuaValue](args[3...]), handler: {error in
+                let message: LuaValue
+                if let error = error as? Lua.LuaError {
+                    switch error {
+                        case .luaError(let msg): message = msg
+                        case .runtimeError(let msg): message = .string(.string(msg))
+                        default: message = .string(.string("Internal VM error"))
+                    }
+                } else {
+                    message = .string(.string(error.localizedDescription))
+                }
+                return try await err.call(in: state.thread, with: [message]).first ?? .nil
+            })
             res.insert(.boolean(true), at: 0)
             return res
         } catch let error as Lua.LuaError {

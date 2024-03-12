@@ -282,7 +282,7 @@ public class Lua {
             fromIndex > 0 && fromIndex <= cl1.upvalues.count,
             case let .lua(cl2) = toFunction,
             toIndex > 0 && toIndex <= cl2.upvalues.count {
-            cl2.upvalues[toIndex-1] = cl1.upvalues[fromIndex-1]
+            cl1.upvalues[fromIndex-1] = cl2.upvalues[toIndex-1]
             return
         }
         throw LuaError.internalError

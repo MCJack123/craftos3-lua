@@ -23,7 +23,7 @@ final class LuaTests: XCTestCase {
         env["require"] = .function(.swift(LuaSwiftFunction {state, args in [env[args[1]]]}))
         env["collectgarbage"] = .function(.swift(.empty))
         print("==> Loading test \(name)")
-        let cl = try await LuaLoad.load(from: try String(contentsOf: URL(fileURLWithPath: "LuaTests/" + name), encoding: .isoLatin1), named: name, mode: .text, environment: env)
+        let cl = try await LuaLoad.load(from: try String(contentsOf: URL(fileURLWithPath: "LuaTests/" + name), encoding: .isoLatin1), named: name, mode: .text, environment: .table(env))
         let fn = LuaFunction.lua(cl)
         try Data(cl.proto.dump()).write(to: URL(fileURLWithPath: "LuaTests/\(name)c"))
         print("==> Running test \(name)")
@@ -83,7 +83,7 @@ final class LuaTests: XCTestCase {
             assert(obj.testStatic(1, 2, 3) == 3)
             obj["unknown"] = "LuaObject works OK"
             return true
-            """, named: name, mode: .text, environment: env)
+            """, named: name, mode: .text, environment: .table(env))
         let fn = LuaFunction.lua(cl)
         print("==> Running test LuaObject")
         let res2 = try await fn.call(in: state.currentThread, with: [])
@@ -102,7 +102,7 @@ final class LuaTests: XCTestCase {
             assert(test.getValue() == "abcd")
             print("LuaLibrary works OK")
             return true
-            """, named: name, mode: .text, environment: env)
+            """, named: name, mode: .text, environment: .table(env))
         let fn = LuaFunction.lua(cl)
         print("==> Running test LuaLibrary")
         let res2 = try await fn.call(in: state.currentThread, with: [])

@@ -326,14 +326,18 @@ internal class LuaVM {
                                     var upvalues = [LuaUpvalue]()
                                     for upval in proto.upvalues {
                                         if upval.0 != 0 {
-                                            let uv = LuaUpvalue(in: ci, at: Int(upval.1))
-                                            upvalues.append(uv)
-                                            state.luaState.openUpvalues.append(uv)
+                                            if let uv = ci.openUpvalues[Int(upval.1)] {
+                                                upvalues.append(uv)
+                                            } else {
+                                                let uv = LuaUpvalue(in: ci, at: Int(upval.1))
+                                                upvalues.append(uv)
+                                                ci.openUpvalues[Int(upval.1)] = uv
+                                            }
                                         } else {
                                             upvalues.append(cl.upvalues[upval.1])
                                         }
                                     }
-                                    ci.stack[a] = .function(.lua(LuaClosure(for: proto, with: upvalues, environment: cl.environment)))
+                                    ci.stack[a] = .function(.lua(LuaClosure(for: proto, with: upvalues)))
                                 default: throw Lua.LuaError.vmError
                             }
                         case .iAsBx(let op, let a, let sbx):
@@ -342,14 +346,11 @@ internal class LuaVM {
                                 case .JMP:
                                     pc += Int(sbx)
                                     if a > 0 {
-                                        for j in (Int(a) - 1) ..< ci.top {
-                                            state.luaState.openUpvalues = state.luaState.openUpvalues.filter({uv in
-                                                if uv.in(stack: ci, at: j) {
-                                                    uv.close()
-                                                    return false
-                                                }
-                                                return true
-                                            })
+                                        for j in (Int(a) - 1) ..< ci.stack.count {
+                                            if let uv = ci.openUpvalues[j] {
+                                                uv.close()
+                                                ci.openUpvalues[j] = nil
+                                            }
                                         }
                                     }
                                 case .FORPREP:

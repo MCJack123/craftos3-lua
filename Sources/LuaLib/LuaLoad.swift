@@ -7,15 +7,23 @@ public class LuaLoad {
         case any
     }
 
-    public static func load(from source: String, named name: String?, mode: LoadMode, environment env: LuaTable) async throws -> LuaClosure {
+    public static func load(from source: String, named name: String?, mode: LoadMode, environment env: LuaValue) async throws -> LuaClosure {
         if source.starts(with: "\u{1b}Lua") {
             if mode != .binary && mode != .any {
                 throw Lua.LuaError.runtimeError(message: "attempt to load a binary chunk")
             }
-            guard let res: LuaClosure = try source.map({UInt8(exactly: $0.unicodeScalars.first?.value ?? 0) ?? 0}).withContiguousStorageIfAvailable({_chunk in
-                return LuaClosure(for: try LuaInterpretedFunction(decoding: UnsafeRawBufferPointer(_chunk), named: name?.bytes), with: [LuaUpvalue(with: .table(env))], environment: env)
+            guard let res: LuaInterpretedFunction = try source.map({UInt8(exactly: $0.unicodeScalars.first?.value ?? 0) ?? 0}).withContiguousStorageIfAvailable({_chunk in
+                return try LuaInterpretedFunction(decoding: UnsafeRawBufferPointer(_chunk), named: name?.bytes)
             }) else {throw Lua.LuaError.runtimeError(message: "could not allocate memory")}
-            return res
+            var upvalues = [LuaUpvalue]()
+            for uv in res.upvalueNames {
+                if uv == "_ENV" {
+                    upvalues.append(LuaUpvalue(with: env))
+                } else {
+                    upvalues.append(LuaUpvalue(with: .nil))
+                }
+            }
+            return LuaClosure(for: res, with: upvalues)
         } else {
             if mode != .text && mode != .any {
                 throw Lua.LuaError.runtimeError(message: "attempt to load a text chunk")
@@ -29,15 +37,23 @@ public class LuaLoad {
         }
     }
 
-    public static func load(from source: [UInt8], named name: [UInt8]?, mode: LoadMode, environment env: LuaTable) async throws -> LuaClosure {
+    public static func load(from source: [UInt8], named name: [UInt8]?, mode: LoadMode, environment env: LuaValue) async throws -> LuaClosure {
         if source.starts(with: "\u{1b}Lua" as [UInt8]) {
             if mode != .binary && mode != .any {
                 throw Lua.LuaError.runtimeError(message: "attempt to load a binary chunk")
             }
-            guard let res: LuaClosure = try source.withContiguousStorageIfAvailable({_chunk in
-                return LuaClosure(for: try LuaInterpretedFunction(decoding: UnsafeRawBufferPointer(_chunk), named: name), with: [LuaUpvalue(with: .table(env))], environment: env)
+            guard let res: LuaInterpretedFunction = try source.withContiguousStorageIfAvailable({_chunk in
+                return try LuaInterpretedFunction(decoding: UnsafeRawBufferPointer(_chunk), named: name)
             }) else {throw Lua.LuaError.runtimeError(message: "could not allocate memory")}
-            return res
+            var upvalues = [LuaUpvalue]()
+            for uv in res.upvalueNames {
+                if uv == "_ENV" {
+                    upvalues.append(LuaUpvalue(with: env))
+                } else {
+                    upvalues.append(LuaUpvalue(with: .nil))
+                }
+            }
+            return LuaClosure(for: res, with: upvalues)
         } else {
             if mode != .text && mode != .any {
                 throw Lua.LuaError.runtimeError(message: "attempt to load a text chunk")
@@ -51,7 +67,7 @@ public class LuaLoad {
         }
     }
 
-    public static func load(using loader: @escaping () async throws -> [UInt8]?, named name: [UInt8]?, mode: LoadMode, environment env: LuaTable) async throws -> LuaClosure {
+    public static func load(using loader: @escaping () async throws -> [UInt8]?, named name: [UInt8]?, mode: LoadMode, environment env: LuaValue) async throws -> LuaClosure {
         if var start = try await loader() {
             while start.count < 4 {
                 if let c = try await loader() {
@@ -71,10 +87,18 @@ public class LuaLoad {
                         break
                     }
                 }
-                guard let res: LuaClosure = try start.withContiguousStorageIfAvailable({_chunk in
-                    return LuaClosure(for: try LuaInterpretedFunction(decoding: UnsafeRawBufferPointer(_chunk), named: name), with: [LuaUpvalue(with: .table(env))], environment: env)
+                guard let res: LuaInterpretedFunction = try start.withContiguousStorageIfAvailable({_chunk in
+                    return try LuaInterpretedFunction(decoding: UnsafeRawBufferPointer(_chunk), named: name)
                 }) else {throw Lua.LuaError.runtimeError(message: "could not allocate memory")}
-                return res
+                var upvalues = [LuaUpvalue]()
+                for uv in res.upvalueNames {
+                    if uv == "_ENV" {
+                        upvalues.append(LuaUpvalue(with: env))
+                    } else {
+                        upvalues.append(LuaUpvalue(with: .nil))
+                    }
+                }
+                return LuaClosure(for: res, with: upvalues)
             } else {
                 if mode != .text && mode != .any {
                     throw Lua.LuaError.runtimeError(message: "attempt to load a text chunk")
@@ -87,7 +111,7 @@ public class LuaLoad {
                     }
                     return try await loader()
                 }, named: name ?? "?"))
-                return LuaClosure(for: fn, with: [LuaUpvalue(with: .table(env))], environment: env)
+                return LuaClosure(for: fn, with: [LuaUpvalue(with: env)])
             }
         } else {
             return try await load(from: "", named: name, mode: mode, environment: env)

@@ -6,7 +6,7 @@ internal class DebugLibrary {
         while true {
             if let line = readLine(), line != "cont" {
                 do {
-                    let cl = try await LuaLoad.load(from: line, named: "=stdin", mode: .text, environment: state.state.globalTable)
+                    let cl = try await LuaLoad.load(from: line, named: "=stdin", mode: .text, environment: .table(state.state.globalTable))
                     _ = try await LuaFunction.lua(cl).call(in: state.thread, with: [])
                 } catch let error as Lua.LuaError {
                     switch error {

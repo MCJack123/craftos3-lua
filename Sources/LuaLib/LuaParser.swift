@@ -130,7 +130,7 @@ internal class LuaParser {
                             try await next()
                         case .lparen:
                             try await callorassign()
-                        default: throw Error.syntaxError(message: "unexpected token", token: tok)
+                        default: throw Error.syntaxError(message: "unexpected symbol", token: tok)
                     }
                 case .keyword(let kw, _):
                     switch kw {
@@ -322,11 +322,11 @@ internal class LuaParser {
                                 }
                                 coder.return(explist)
                             }
-                        default: throw Error.syntaxError(message: "unexpected token", token: tok)
+                        default: throw Error.syntaxError(message: "unexpected symbol", token: tok)
                     }
                 case .name:
                     try await callorassign()
-                default: throw Error.syntaxError(message: "unexpected token", token: tok)
+                default: throw Error.syntaxError(message: "unexpected symbol", token: tok)
             }
         }
     }
@@ -460,7 +460,7 @@ internal class LuaParser {
                     try await next()
                     return .function(try await funcbody(addSelf: false))
                 } else {
-                    throw Error.syntaxError(message: "unexpected token", token: current)
+                    throw Error.syntaxError(message: "unexpected symbol", token: current)
                 }
             case .operator(let op, _):
                 switch op {
@@ -472,7 +472,7 @@ internal class LuaParser {
                         try await next()
                         return .unop(op, try await expitem()) // TODO: fix ^ precedence
                     default:
-                        throw Error.syntaxError(message: "unexpected token", token: current)
+                        throw Error.syntaxError(message: "unexpected symbol", token: current)
                 }
             case .name:
                 return .prefixexp(try await prefixexp())

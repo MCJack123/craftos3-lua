@@ -78,6 +78,10 @@ public class LuaInterpretedFunction: Hashable {
         case invalidBytecode
     }
 
+    public var upvalueNames: [String?] {
+        return upvalues.map {$0.2}
+    }
+
     public init(
         opcodes: [LuaOpcode],
         constants: [LuaValue],
@@ -233,7 +237,15 @@ public class LuaInterpretedFunction: Hashable {
     }
 
     public static func == (lhs: LuaInterpretedFunction, rhs: LuaInterpretedFunction) -> Bool {
-        return lhs === rhs
+        return lhs.opcodes == rhs.opcodes &&
+            lhs.constants == rhs.constants &&
+            lhs.prototypes == rhs.prototypes &&
+            lhs.upvalues.elementsEqual(rhs.upvalues) {$0 == $1} &&
+            lhs.stackSize == rhs.stackSize &&
+            lhs.numParams == rhs.numParams &&
+            lhs.isVararg == rhs.isVararg &&
+            lhs.name == rhs.name //&&
+            //lhs.locals.elementsEqual(rhs.locals) {$0 == $1}
     }
 
     public func hash(into hasher: inout Hasher) {

@@ -1,16 +1,14 @@
 public class LuaClosure: Hashable {
     public var upvalues: [LuaUpvalue]
     public let proto: LuaInterpretedFunction
-    public var environment: LuaTable
 
-    public init(for fn: LuaInterpretedFunction, with upval: [LuaUpvalue], environment env: LuaTable) {
+    public init(for fn: LuaInterpretedFunction, with upval: [LuaUpvalue]) {
         proto = fn
         upvalues = upval
-        environment = env
     }
 
     public static func == (lhs: LuaClosure, rhs: LuaClosure) -> Bool {
-        return lhs === rhs
+        return lhs.proto == rhs.proto && lhs.upvalues == rhs.upvalues
     }
 
     public func hash(into hasher: inout Hasher) {

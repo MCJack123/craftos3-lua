@@ -1,4 +1,4 @@
-public enum LuaOpcode {
+public enum LuaOpcode: Equatable {
     public enum Operation: UInt8 {
         case MOVE = 0
         case LOADK = 1

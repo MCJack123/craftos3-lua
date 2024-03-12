@@ -1,4 +1,4 @@
-public class LuaUpvalue {
+public class LuaUpvalue: Equatable {
     private var stack: CallInfo?
     private var index: Int?
     private var _value: LuaValue?
@@ -40,5 +40,12 @@ public class LuaUpvalue {
             self.stack = nil
             index = nil
         }
+    }
+
+    public static func == (lhs: LuaUpvalue, rhs: LuaUpvalue) -> Bool {
+        /*if lhs._value != nil || rhs._value != nil {
+            return false
+        }*/
+        return lhs.stack === rhs.stack && lhs.index == rhs.index && lhs._value == rhs._value
     }
 }

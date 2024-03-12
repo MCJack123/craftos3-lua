@@ -6,7 +6,6 @@ public class LuaState {
     public var functionMetatable: LuaTable? = nil
     public var threadMetatable: LuaTable? = nil
     public var currentThread: LuaThread!
-    public var openUpvalues = [LuaUpvalue]()
     public var tablesToBeFinalized = [LuaTable]()
     public var globalTable: LuaTable!
     public var registry: LuaTable!

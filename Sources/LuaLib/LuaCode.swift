@@ -39,6 +39,7 @@ internal class LuaCode {
         private var openGotos = [(String, Int)]()
         internal var root: Block!
         internal var line: Int = 0
+        private var closureLevel: Int? = nil
 
         fileprivate init(named name: [UInt8]) {
             self.parent = nil
@@ -128,9 +129,9 @@ internal class LuaCode {
                 let (type, idx) = parent.variable(named: name)
                 switch type {
                     case .local:
-                        // TODO: update endpc for upper local
                         upvalues[name] = (nextUpvalue, true, idx)
                         nextUpvalue += 1
+                        parent.fn.closureLevel = min(parent.fn.closureLevel ?? 10000, idx)
                         return (.upvalue, nextUpvalue - 1)
                     case .upvalue:
                         upvalues[name] = (nextUpvalue, false, idx)
@@ -149,6 +150,20 @@ internal class LuaCode {
                 return (.global, env.0)
             } else {
                 assert(false, "Internal parser error: Global variable requested, but no environment was provided")
+            }
+        }
+
+        internal func close(to level: Int) -> UInt8 {
+            if let closureLevel = closureLevel {
+                if level >= closureLevel {
+                    self.closureLevel = min(closureLevel, level - 1)
+                    return UInt8(level + 1)
+                } else {
+                    self.closureLevel = nil
+                    return UInt8(closureLevel + 1)
+                }
+            } else {
+                return 0
             }
         }
 
@@ -173,26 +188,28 @@ internal class LuaCode {
             case `repeat`
             case forRange
             case forIter
+            case `do`
         }
 
         internal let fn: Function
         fileprivate let parent: Block?
         private let base: Int
         fileprivate var level: Int
+        private var top: Int
         fileprivate var locals = [String: (Int, LocalInfo)]()
         fileprivate var state = State.normal
         private var start: Int? = nil
         private var ifJumps = [Int]()
         private var loopBreaks = [Int]()
-        private var repeatBlock: Block? = nil
+        private var childBlock: Block? = nil
         private var forIterLocals: Int? = nil
-        private var hasClosures = false
 
         fileprivate init(for fn: Function) {
             self.fn = fn
             self.parent = nil
             self.base = 0
             self.level = 0
+            self.top = 0
         }
 
         fileprivate init(in block: Block) {
@@ -200,6 +217,12 @@ internal class LuaCode {
             self.parent = block
             self.base = block.level
             self.level = block.level
+            self.top = block.level
+        }
+
+        private func allocate(slot: Int) {
+            fn.allocate(slot: slot)
+            top = slot + 1
         }
 
         fileprivate func variable(named name: String) -> (VarType, Int) {
@@ -229,23 +252,23 @@ internal class LuaCode {
                 switch type {
                     case .local: return UInt16(k)
                     case .upvalue:
-                        fn.allocate(slot: idx)
+                        allocate(slot: idx)
                         _ = fn.add(opcode: .iABC(.GETUPVAL, UInt8(idx), UInt16(k), 0))
                         return UInt16(idx)
                     case .global:
-                        fn.allocate(slot: idx)
+                        allocate(slot: idx)
                         _ = fn.add(opcode: .iABC(.GETTABUP, UInt8(idx), UInt16(k), UInt16(0x100 | fn.constant(for: .string(.string(name))))))
                         return UInt16(idx)
                 }
             } else {
-                fn.allocate(slot: idx)
+                allocate(slot: idx)
                 expression(expr, to: idx)
                 return UInt16(idx)
             }
         }
 
         internal func prefixexp(_ expr: LuaParser.PrefixExpression, to idx: Int, results: Int = 1) {
-            fn.allocate(slot: idx + results - 1)
+            allocate(slot: idx + results - 1)
             switch expr {
                 case .name(let name):
                     let (type, vidx) = variable(named: name)
@@ -276,7 +299,7 @@ internal class LuaCode {
                         _ = fn.add(opcode: .iABC(.LOADNIL, UInt8(idx + 1), UInt16(results - 2), 0))
                     }
                 case .call(let pexp, let args):
-                    fn.allocate(slot: max(idx + args.count, idx + results - 1))
+                    allocate(slot: max(idx + args.count, idx + results - 1))
                     prefixexp(pexp, to: idx)
                     var vararg = false
                     loop: for (i, v) in args.enumerated() {
@@ -329,7 +352,7 @@ internal class LuaCode {
         }
 
         internal func expression(_ expr: LuaParser.Expression, to idx: Int, results: Int = 1) {
-            if results > 0 {fn.allocate(slot: idx + results - 1)}
+            if results > 0 {allocate(slot: idx + results - 1)}
             switch expr {
                 case .nil:
                     _ = fn.add(opcode: .iABC(.LOADNIL, UInt8(idx), UInt16(results - 1), 0))
@@ -377,10 +400,10 @@ internal class LuaCode {
                         if case let .array(item) = e {aitems.append(item)}
                         else {hitems.append(e)}
                     }
-                    fn.allocate(slot: idx)
+                    allocate(slot: idx)
                     _ = fn.add(opcode: .iABC(.NEWTABLE, UInt8(idx), int2fb(aitems.count), int2fb(hitems.count)))
                     if !aitems.isEmpty {
-                        fn.allocate(slot: idx + min(aitems.count, 50) + 1)
+                        allocate(slot: idx + min(aitems.count, 50) + 1)
                         var start = 0
                         while start + 50 < aitems.count {
                             for i in 0..<50 {
@@ -411,7 +434,7 @@ internal class LuaCode {
                                 if case let .constant(v) = val {
                                     vidx = UInt16(0x100 | fn.constant(for: v))
                                 } else {
-                                    fn.allocate(slot: idx + 1)
+                                    allocate(slot: idx + 1)
                                     expression(val, to: idx + 1)
                                     vidx = UInt16(idx + 1)
                                 }
@@ -421,14 +444,14 @@ internal class LuaCode {
                                 if case let .constant(k) = key {
                                     kidx = UInt16(0x100 | fn.constant(for: k))
                                 } else {
-                                    fn.allocate(slot: idx + 1)
+                                    allocate(slot: idx + 1)
                                     expression(key, to: idx + 1)
                                     kidx = UInt16(idx + 1)
                                 }
                                 if case let .constant(v) = val {
                                     vidx = UInt16(0x100 | fn.constant(for: v))
                                 } else {
-                                    fn.allocate(slot: idx + 2)
+                                    allocate(slot: idx + 2)
                                     expression(val, to: idx + 2)
                                     vidx = UInt16(idx + 2)
                                 }
@@ -530,6 +553,31 @@ internal class LuaCode {
                         default: break
                     }
                 }
+            } else if vars.count == 1, case let .field(pexp, field) = vars[0], case let .name(name) = pexp {
+                let (type, idx) = variable(named: name)
+                if type == .local {
+                    for i in 1..<explist.count {
+                        expression(explist[i], to: level)
+                    }
+                    let k = fn.constant(for: .string(.string(field)))
+                    expression(explist[0], to: level)
+                    _ = fn.add(opcode: .iABC(.SETTABLE, UInt8(idx), UInt16(k + 256), UInt16(level)))
+                    return
+                }
+            } else if vars.count == 1,
+              case let .index(pexp, idxp) = vars[0],
+              case let .name(name) = pexp,
+              case let .prefixexp(.name(index)) = idxp {
+                let (type, idx) = variable(named: name)
+                let (itype, iidx) = variable(named: index)
+                if type == .local && itype == .local {
+                    for i in 1..<explist.count {
+                        expression(explist[i], to: level)
+                    }
+                    expression(explist[0], to: level)
+                    _ = fn.add(opcode: .iABC(.SETTABLE, UInt8(idx), UInt16(iidx), UInt16(level)))
+                    return
+                }
             }
             var tables = 0, nexttable = 0
             for v in vars {
@@ -569,7 +617,7 @@ internal class LuaCode {
 
         internal func local(named names: [String], values: [LuaParser.Expression] = []) {
             assert(state == .normal)
-            fn.allocate(slot: level + names.count - 1)
+            allocate(slot: level + names.count - 1)
             if values.isEmpty {
                 _ = fn.add(opcode: .iABC(.LOADNIL, UInt8(level), UInt16(names.count - 1), 0))
                 for (i, v) in names.enumerated() {
@@ -608,9 +656,22 @@ internal class LuaCode {
             prefixexp(expr, to: level, results: 0)
         }
 
-        internal func block() -> Block {
+        internal func `do`() -> Block {
             assert(state == .normal)
-            return Block(in: self)
+            state = .do
+            childBlock = Block(in: self)
+            return childBlock!
+        }
+
+        internal func endDo() {
+            assert(state == .do)
+            if childBlock!.level > level {
+                let close = fn.close(to: level)
+                if close != 0 {
+                    _ = fn.add(opcode: .iAsBx(.JMP, close, 0))
+                }
+            }
+            state = .normal
         }
 
         internal func `break`() throws {
@@ -618,7 +679,7 @@ internal class LuaCode {
             while parent != nil {
                 switch parent!.state {
                     case .while, .repeat, .forIter, .forRange:
-                        parent!.loopBreaks.append(fn.add(opcode: .iAsBx(.JMP, hasClosures ? UInt8(parent!.level + 1) : 0, 0)) - 1)
+                        parent!.loopBreaks.append(fn.add(opcode: .iAsBx(.JMP, 0, 0)) - 1)
                         return
                     default: break
                 }
@@ -629,6 +690,7 @@ internal class LuaCode {
 
         internal func label(named name: String) throws {
             try fn.add(label: name, in: self)
+            level = top
         }
 
         internal func `goto`(_ name: String) throws {
@@ -638,8 +700,8 @@ internal class LuaCode {
         internal func `if`(_ expr: LuaParser.Expression) -> Block {
             assert(state == .normal || state == .if)
             if let start = start {
-                let end = fn.add(opcode: .iAsBx(.JMP, hasClosures ? UInt8(level + 1) : 0, 0)) - 1
-                ifJumps.append(end - 1)
+                let end = fn.add(opcode: .iAsBx(.JMP, childBlock!.level > level ? fn.close(to: level) : 0, 0)) - 1
+                ifJumps.append(end)
                 fn.modify(at: start, opcode: .iAsBx(.JMP, 0, Int32(end - start)))
             }
             if case let .binop(oper, left, right) = expr {
@@ -660,7 +722,8 @@ internal class LuaCode {
                         _ = fn.add(opcode: .iABC(op, UInt8(flip ? 1 : 0), lidx, ridx))
                         start = fn.add(opcode: .iAsBx(.JMP, 0, 0)) - 1
                         state = .if
-                        return Block(in: self)
+                        childBlock = Block(in: self)
+                        return childBlock!
                     // TODO: optimize and/or chains
                     default: break
                 }
@@ -669,18 +732,20 @@ internal class LuaCode {
             _ = fn.add(opcode: .iABC(.TEST, UInt8(level), 0, 0))
             start = fn.add(opcode: .iAsBx(.JMP, 0, 0)) - 1
             state = .if
-            return Block(in: self)
+            childBlock = Block(in: self)
+            return childBlock!
         }
 
         internal func `else`() -> Block {
             assert(state == .if)
             if let start = start {
-                let end = fn.add(opcode: .iAsBx(.JMP, hasClosures ? UInt8(level + 1) : 0, 0))
-                ifJumps.append(end - 1)
-                fn.modify(at: start, opcode: .iAsBx(.JMP, 0, Int32(end - start - 1)))
+                let end = fn.add(opcode: .iAsBx(.JMP, childBlock!.level > level ? fn.close(to: level) : 0, 0)) - 1
+                ifJumps.append(end)
+                fn.modify(at: start, opcode: .iAsBx(.JMP, 0, Int32(end - start)))
             }
             start = nil
-            return Block(in: self)
+            childBlock = Block(in: self)
+            return childBlock!
         }
 
         internal func endIf() {
@@ -689,10 +754,11 @@ internal class LuaCode {
                 fn.modify(at: start, opcode: .iAsBx(.JMP, 0, Int32(fn.top - start - 1)))
             }
             for j in ifJumps {
-                fn.modify(at: j, opcode: .iAsBx(.JMP, hasClosures ? UInt8(level + 1) : 0, Int32(fn.top - j - 1)))
+                fn.modify(at: j, opcode: .iAsBx(.JMP, childBlock!.level > level ? fn.close(to: level) : 0, Int32(fn.top - j - 1)))
             }
             start = nil
             state = .normal
+            childBlock = nil
             ifJumps = [Int]()
         }
 
@@ -716,7 +782,8 @@ internal class LuaCode {
                         _ = fn.add(opcode: .iABC(op, UInt8(flip ? 1 : 0), lidx, ridx))
                         start = fn.add(opcode: .iAsBx(.JMP, 0, 0)) - 1
                         state = .while
-                        return Block(in: self)
+                        childBlock = Block(in: self)
+                        return childBlock!
                     // TODO: optimize and/or chains
                     default: break
                 }
@@ -726,20 +793,23 @@ internal class LuaCode {
             start = fn.add(opcode: .iAsBx(.JMP, 0, 0)) - 1
             state = .while
             loopBreaks = []
-            return Block(in: self)
+            childBlock = Block(in: self)
+            return childBlock!
         }
 
         internal func endWhile() {
             assert(state == .while)
             if let start = start {
-                let end = fn.add(opcode: .iAsBx(.JMP, hasClosures ? UInt8(level + 1) : 0, Int32(start - fn.top - 2))) - 1
+                let close = childBlock!.level > level ? fn.close(to: level) : 0
+                let end = fn.add(opcode: .iAsBx(.JMP, close, Int32(start - fn.top - 2))) - 1
                 fn.modify(at: start, opcode: .iAsBx(.JMP, 0, Int32(end - start)))
                 for idx in loopBreaks {
-                    fn.modify(at: idx, opcode: .iAsBx(.JMP, hasClosures ? UInt8(level + 1) : 0, Int32(end - idx)))
+                    fn.modify(at: idx, opcode: .iAsBx(.JMP, close, Int32(end - idx)))
                 }
             }
             start = nil
             state = .normal
+            childBlock = nil
         }
 
         internal func `repeat`() -> Block {
@@ -747,13 +817,13 @@ internal class LuaCode {
             start = fn.top
             state = .repeat
             loopBreaks = []
-            repeatBlock = Block(in: self)
-            return repeatBlock!
+            childBlock = Block(in: self)
+            return childBlock!
         }
 
         internal func until(_ expr: LuaParser.Expression) {
             assert(state == .repeat)
-            if let repeatBlock = repeatBlock {
+            if let repeatBlock = childBlock {
                 if case let .binop(oper, left, right) = expr {
                     switch oper {
                         case .eq, .ne, .gt, .lt, .ge, .le:
@@ -770,12 +840,14 @@ internal class LuaCode {
                                 default: assert(false); return
                             }
                             _ = fn.add(opcode: .iABC(op, UInt8(flip ? 1 : 0), lidx, ridx))
-                            let end = fn.add(opcode: .iAsBx(.JMP, hasClosures ? UInt8(repeatBlock.level + 1) : 0, Int32(start! - fn.top - 1)))
+                            let close = childBlock!.level > level ? fn.close(to: level) : 0
+                            let end = fn.add(opcode: .iAsBx(.JMP, close, Int32(start! - fn.top - 1)))
                             for idx in loopBreaks {
-                                fn.modify(at: idx, opcode: .iAsBx(.JMP, hasClosures ? UInt8(repeatBlock.level + 1) : 0, Int32(end - idx)))
+                                fn.modify(at: idx, opcode: .iAsBx(.JMP, close, Int32(end - idx)))
                             }
                             start = nil
                             state = .normal
+                            childBlock = nil
                             return
                         // TODO: optimize and/or chains
                         default: break
@@ -783,13 +855,15 @@ internal class LuaCode {
                 }
                 repeatBlock.expression(expr, to: repeatBlock.level)
                 _ = fn.add(opcode: .iABC(.TEST, UInt8(repeatBlock.level), 0, 0))
-                let end = fn.add(opcode: .iAsBx(.JMP, hasClosures ? UInt8(repeatBlock.level + 1) : 0, Int32(start! - fn.top - 1)))
+                let close = childBlock!.level > level ? fn.close(to: level) : 0
+                let end = fn.add(opcode: .iAsBx(.JMP, close, Int32(start! - fn.top - 1)))
                 for idx in loopBreaks {
-                    fn.modify(at: idx, opcode: .iAsBx(.JMP, hasClosures ? UInt8(repeatBlock.level + 1) : 0, Int32(end - idx)))
+                    fn.modify(at: idx, opcode: .iAsBx(.JMP, close, Int32(end - idx)))
                 }
             }
             start = nil
             state = .normal
+            childBlock = nil
         }
 
         internal func `return`(_ explist: [LuaParser.Expression]) {
@@ -836,7 +910,7 @@ internal class LuaCode {
 
         internal func forRange(named name: String, start: LuaParser.Expression, stop: LuaParser.Expression, step: LuaParser.Expression?) -> Block {
             assert(state == .normal)
-            fn.allocate(slot: level + 3)
+            allocate(slot: level + 3)
             expression(start, to: level)
             expression(stop, to: level + 1)
             if let step = step {
@@ -858,10 +932,14 @@ internal class LuaCode {
         internal func endForRange() {
             assert(state == .forRange)
             if let start = start {
+                let close = fn.close(to: level + 3)
+                if close != 0 {
+                    _ = fn.add(opcode: .iAsBx(.JMP, close, 0))
+                }
                 let end = fn.add(opcode: .iAsBx(.FORLOOP, UInt8(level), Int32(start - fn.top))) - 1
                 fn.modify(at: start, opcode: .iAsBx(.FORPREP, UInt8(level), Int32(end - start - 1)))
                 for idx in loopBreaks {
-                    fn.modify(at: idx, opcode: .iAsBx(.JMP, hasClosures ? UInt8(level + 1) : 0, Int32(end - idx)))
+                    fn.modify(at: idx, opcode: .iAsBx(.JMP, close, Int32(end - idx)))
                 }
             }
             start = nil
@@ -870,7 +948,7 @@ internal class LuaCode {
 
         internal func forIter(names: [String], from explist: [LuaParser.Expression]) -> Block {
             assert(state == .normal)
-            fn.allocate(slot: level + 2 + names.count)
+            allocate(slot: level + 2 + names.count)
             switch explist.count {
                 case 1:
                     expression(explist[0], to: level, results: 3)
@@ -900,11 +978,15 @@ internal class LuaCode {
         internal func endForIter() {
             assert(state == .forIter)
             if let start = start, let forIterLocals = forIterLocals {
+                let close = fn.close(to: level + 3)
+                if close != 0 {
+                    _ = fn.add(opcode: .iAsBx(.JMP, close, 0))
+                }
                 let end = fn.add(opcode: .iABC(.TFORCALL, UInt8(level), 0, UInt16(forIterLocals)))
                 _ = fn.add(opcode: .iAsBx(.TFORLOOP, UInt8(level + 2), Int32(start - end)))
                 fn.modify(at: start, opcode: .iAsBx(.JMP, 0, Int32(end - start - 2)))
                 for idx in loopBreaks {
-                    fn.modify(at: idx, opcode: .iAsBx(.JMP, hasClosures ? UInt8(level + 1) : 0, Int32(end - idx)))
+                    fn.modify(at: idx, opcode: .iAsBx(.JMP, close, Int32(end - idx)))
                 }
             }
             start = nil
@@ -915,7 +997,6 @@ internal class LuaCode {
         internal func function(with args: [String], vararg: Bool) -> (Block, Int) {
             let fn2 = Function(from: self, args: args.count, vararg: vararg)
             for name in args {_ = fn2.root.local(named: name)}
-            hasClosures = true
             return (fn2.root, fn.add(prototype: fn2))
         }
 
@@ -1012,7 +1093,7 @@ internal class LuaCode {
     }
     
     internal func `do`() {
-        block = block.block()
+        block = block.do()
     }
 
     internal func `while`(_ expr: LuaParser.Expression) {
@@ -1106,6 +1187,7 @@ internal class LuaCode {
                 case .while: parent.endWhile()
                 case .forIter: parent.endForIter()
                 case .forRange: parent.endForRange()
+                case .do: parent.endDo()
                 default: break
             }
             block = parent

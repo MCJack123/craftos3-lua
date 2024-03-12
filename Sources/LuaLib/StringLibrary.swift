@@ -1,6 +1,30 @@
 import Lua
 import LibC
 
+extension Collection where Element: Equatable {
+    func firstRange_<C>(of other: C) -> Range<Self.Index>? where C : Collection, Self.Element == C.Element {
+        if #available(macOS 13.0, iOS 16.0, tvOS 16.0, watchOS 9.0, *) {
+            return firstRange(of: other)
+        } else {
+            var index = startIndex
+            loop: while index != endIndex {
+                var i2a = index
+                var i2b = other.startIndex
+                while i2b != other.endIndex {
+                    if i2a == endIndex || self[i2a] != other[i2b] {
+                        index = self.index(after: index)
+                        continue loop
+                    }
+                    i2a = self.index(after: i2a)
+                    i2b = other.index(after: i2b)
+                }
+                return index..<i2a
+            }
+            return nil
+        }
+    }
+}
+
 internal struct StringLibrary: LuaLibrary {
     public let name = "string"
 
@@ -39,7 +63,7 @@ internal struct StringLibrary: LuaLibrary {
         let pat = try args.checkBytes(at: 2)
         let idx = try args.checkInt(at: 3, default: 1)
         if args[4].toBool || !pat.contains(where: {StringLibrary.magicCharacters.contains($0)}) {
-            if let range = str.ranges(of: pat).first {
+            if let range = str.firstRange_(of: pat) {
                 return [
                     .number(Double(str.distance(from: str.startIndex, to: range.lowerBound) + 1)),
                     .number(Double(str.distance(from: str.startIndex, to: range.upperBound) + 1)),
