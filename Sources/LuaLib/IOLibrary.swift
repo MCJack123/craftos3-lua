@@ -269,11 +269,15 @@ internal class IOLibrary {
     }
 
     public func popen(_ state: Lua, path: String, mode: String?) throws -> [LuaValue] {
-        if let fp = LibC.popen(path, mode ?? "r") {
+        #if os(iOS) || os(tvOS) || os(watchOS)
+        return [.nil, .string(.string("popen not available on this platform"))]
+        #else
+        if let fp = LibC.popen_(path, mode ?? "r") {
             return [.object(FileObject(fp))]
         } else {
             return [.nil, .string(.string(String(cString: strerror(errno_()))))]
         }
+        #endif
     }
 
     public func read(_ state: Lua, _ args: LuaArgs) throws -> [LuaValue] {

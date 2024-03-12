@@ -5,3 +5,4 @@
 #include <stdlib.h>
 #include <ctype.h>
 static int errno_() {return errno;}
+static FILE* popen_(const char * path, const char * mode) {return popen(path, mode);}
