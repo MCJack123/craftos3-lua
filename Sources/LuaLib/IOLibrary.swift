@@ -146,7 +146,7 @@ internal class FileObject {
         for i in 1...args.count {
             let str = args[i].toString
             if fwrite(str, str.count, 1, handle) < str.count {
-                return [.nil, .string(.string(String(cString: strerror(__errno_location().pointee))))]
+                return [.nil, .string(.string(String(cString: strerror(errno_()))))]
             }
         }
         return [.object(self)]
@@ -195,7 +195,7 @@ internal class IOLibrary {
                 if let h = fopen(path.string, "r") {
                     handle = FileObject(h)
                 } else {
-                    throw Lua.error(in: state, message: String(cString: strerror(__errno_location().pointee)))
+                    throw Lua.error(in: state, message: String(cString: strerror(errno_())))
                 }
             } else {
                 handle = try file.checkUserdata(at: 1, as: FileObject.self)
@@ -237,7 +237,7 @@ internal class IOLibrary {
                 return retval
             }))
         } else {
-            throw Lua.error(in: state, message: String(cString: strerror(__errno_location().pointee)))
+            throw Lua.error(in: state, message: String(cString: strerror(errno_())))
         }
     }
 
@@ -245,7 +245,7 @@ internal class IOLibrary {
         if let fp = fopen(path, mode ?? "r") {
             return [.object(FileObject(fp))]
         } else {
-            return [.nil, .string(.string(String(cString: strerror(__errno_location().pointee))))]
+            return [.nil, .string(.string(String(cString: strerror(errno_()))))]
         }
     }
 
@@ -257,7 +257,7 @@ internal class IOLibrary {
                     if let h = fopen(_path, "w") {
                         handle = FileObject(h)
                     } else {
-                        throw Lua.error(in: state, message: String(cString: strerror(__errno_location().pointee)))
+                        throw Lua.error(in: state, message: String(cString: strerror(errno_())))
                     }
                 }
             } else {
@@ -272,7 +272,7 @@ internal class IOLibrary {
         if let fp = LibC.popen(path, mode ?? "r") {
             return [.object(FileObject(fp))]
         } else {
-            return [.nil, .string(.string(String(cString: strerror(__errno_location().pointee))))]
+            return [.nil, .string(.string(String(cString: strerror(errno_()))))]
         }
     }
 
