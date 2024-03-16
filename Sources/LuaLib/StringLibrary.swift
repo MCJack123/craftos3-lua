@@ -135,7 +135,7 @@ internal struct StringLibrary: LuaLibrary {
         for _ in 2...count {
             retval += sep + val
         }
-        return [.string(.string(val))]
+        return [.string(.string(retval))]
     }
 
     public let reverse = LuaSwiftFunction {state, args in

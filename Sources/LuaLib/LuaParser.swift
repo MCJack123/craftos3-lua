@@ -558,8 +558,9 @@ internal class LuaParser {
         coder.line = line
         let idx = coder.function(with: args, vararg: vararg)
         try await block()
-        try await consume(keyword: .end)
+        coder.line = lexer.line
         try coder.end()
+        try await consume(keyword: .end)
         return idx
     }
 

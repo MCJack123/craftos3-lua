@@ -244,7 +244,7 @@ internal class LuaCode {
 
         fileprivate func variable(named name: String) -> (VarType, Int) {
             if let local = locals[name] {
-                local.1.endpc = fn.top
+                local.1.endpc = fn.top + 1
                 return (.local, local.0)
             } else if let parent = parent {
                 return parent.variable(named: name)
@@ -255,10 +255,16 @@ internal class LuaCode {
 
         internal func local(named name: String) -> Int {
             let info = LocalInfo(name, fn.top)
-            locals[name] = (level, info)
+            let idx: Int
+            if let loc = locals[name] {
+                idx = loc.0
+            } else {
+                idx = level
+                level += 1
+            }
+            locals[name] = (idx, info)
             fn.localinfo.append(info)
-            level += 1
-            return level - 1
+            return idx
         }
 
         private func rk(for expr: LuaParser.Expression, at idx: Int) -> UInt16 {
@@ -310,8 +316,19 @@ internal class LuaCode {
                         _ = fn.add(opcode: .iABC(.LOADNIL, UInt8(idx + 1), UInt16(results - 2), 0))
                     }
                 case .field(let pexp, let name):
-                    prefixexp(pexp, to: idx)
-                    _ = fn.add(opcode: .iABC(.GETTABLE, UInt8(idx), UInt16(idx), UInt16(0x100 | fn.constant(for: .string(.string(name))))))
+                    if case let .name(vname) = pexp {
+                        let (type, vidx) = variable(named: vname)
+                        switch type {
+                            case .local: _ = fn.add(opcode: .iABC(.GETTABLE, UInt8(idx), UInt16(vidx), UInt16(0x100 | fn.constant(for: .string(.string(name))))))
+                            case .upvalue: _ = fn.add(opcode: .iABC(.GETTABUP, UInt8(idx), UInt16(vidx), UInt16(0x100 | fn.constant(for: .string(.string(name))))))
+                            case .global:
+                                _ = fn.add(opcode: .iABC(.GETTABUP, UInt8(idx), UInt16(vidx), UInt16(0x100 | fn.constant(for: .string(.string(vname))))))
+                                _ = fn.add(opcode: .iABC(.GETTABLE, UInt8(idx), UInt16(idx), UInt16(0x100 | fn.constant(for: .string(.string(name))))))
+                        }
+                    } else {
+                        prefixexp(pexp, to: idx)
+                        _ = fn.add(opcode: .iABC(.GETTABLE, UInt8(idx), UInt16(idx), UInt16(0x100 | fn.constant(for: .string(.string(name))))))
+                    }
                     if results > 1 {
                         _ = fn.add(opcode: .iABC(.LOADNIL, UInt8(idx + 1), UInt16(results - 2), 0))
                     }
@@ -366,6 +383,40 @@ internal class LuaCode {
                 e+=1
             }
             return UInt16(((e+1) << 3) | (x - 8))
+        }
+
+        internal func insert(expression expr: LuaParser.Expression, to idx: Int) {
+            switch expr {
+                case .nil, .true, .false, .vararg, .constant, .function:
+                    return expression(expr, to: idx)
+                case .prefixexp(let pexp):
+                    switch pexp {
+                        case .name(let name):
+                            let (type, vidx) = variable(named: name)
+                            switch type {
+                                case .local: _ = fn.add(opcode: .iABC(.MOVE, UInt8(idx), UInt16(vidx), 0))
+                                case .upvalue: _ = fn.add(opcode: .iABC(.GETUPVAL, UInt8(idx), UInt16(vidx), 0))
+                                case .global: _ = fn.add(opcode: .iABC(.GETTABUP, UInt8(idx), UInt16(vidx), UInt16(0x100 | fn.constant(for: .string(.string(name))))))
+                            }
+                            return
+                        case .field(.name(let name), let field):
+                            let (type, vidx) = variable(named: name)
+                            switch type {
+                                case .local: _ = fn.add(opcode: .iABC(.MOVE, UInt8(idx), UInt16(vidx), 0))
+                                case .upvalue: _ = fn.add(opcode: .iABC(.GETUPVAL, UInt8(idx), UInt16(vidx), 0))
+                                case .global: _ = fn.add(opcode: .iABC(.GETTABUP, UInt8(idx), UInt16(vidx), UInt16(0x100 | fn.constant(for: .string(.string(name))))))
+                            }
+                            _ = fn.add(opcode: .iABC(.GETTABLE, UInt8(idx), UInt16(idx), UInt16(0x100 | fn.constant(for: .string(.string(field))))))
+                            return
+                        default: break
+                    }
+                    fallthrough
+                default:
+                    expression(expr, to: level)
+                    if idx != level {
+                        _ = fn.add(opcode: .iABC(.MOVE, UInt8(idx), UInt16(level), 0))
+                    }
+            }
         }
 
         internal func expression(_ expr: LuaParser.Expression, to idx: Int, results: Int = 1) {
@@ -637,30 +688,46 @@ internal class LuaCode {
             allocate(slot: level + names.count - 1)
             if values.isEmpty {
                 _ = fn.add(opcode: .iABC(.LOADNIL, UInt8(level), UInt16(names.count - 1), 0))
-                for (i, v) in names.enumerated() {
+                for (_, v) in names.enumerated() {
                     let info = LocalInfo(v, fn.top)
-                    locals[v] = (level + i, info)
+                    let idx: Int
+                    if let loc = locals[v] {
+                        idx = loc.0
+                    } else {
+                        idx = level
+                        level += 1
+                    }
+                    locals[v] = (idx, info)
                     fn.localinfo.append(info)
                 }
-                level += names.count
                 return
             }
             for (i, v) in names.enumerated() {
                 if i == values.count - 1 && names.count > values.count {
-                    expression(values[i], to: level + i, results: names.count - values.count + 1)
+                    let pc = fn.top
+                    expression(values[i], to: level, results: names.count - values.count + 1)
                     for j in i..<names.count {
-                        let info = LocalInfo(names[j], fn.top)
-                        locals[names[j]] = (level + j, info)
+                        let info = LocalInfo(names[j], pc)
+                        locals[names[j]] = (level + j - i, info)
                         fn.localinfo.append(info)
                     }
+                    level += names.count - i
                     break
                 }
-                expression(values[i], to: level + i)
-                let info = LocalInfo(v, fn.top)
-                locals[v] = (level + i, info)
+                let idx: Int
+                let pc = fn.top
+                if let loc = locals[v] {
+                    idx = loc.0
+                    insert(expression: values[i], to: idx)
+                } else {
+                    idx = level
+                    expression(values[i], to: level)
+                    level += 1
+                }
+                let info = LocalInfo(v, pc)
+                locals[v] = (idx, info)
                 fn.localinfo.append(info)
             }
-            level += names.count
             if names.count < values.count {
                 for i in names.count..<values.count {
                     expression(values[i], to: level)

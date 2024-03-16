@@ -50,12 +50,16 @@ internal class LuaVM {
                     if state.hookCount > 0 {
                         state.hookCountLeft -= 1
                     }
-                    if let hook = state.hookFunction {
+                    if let hook = state.hookFunction, state.allowHooks {
                         if state.hookFlags.contains(.count) && state.hookCount > 0 && state.hookCountLeft == 0 {
+                            state.allowHooks = false
+                            defer {state.allowHooks = true}
                             _ = try await hook.call(in: state, with: [.string(.string("count"))])
                             state.hookCountLeft = state.hookCount
                         }
                         if state.hookFlags.contains(.line) && (pc == 0 || (pc < cl.proto.lineinfo.count && cl.proto.lineinfo[ci.savedpc] != cl.proto.lineinfo[pc])) {
+                            state.allowHooks = false
+                            defer {state.allowHooks = true}
                             _ = try await hook.call(in: state, with: [.string(.string("line")), .number(Double(cl.proto.lineinfo[pc]))])
                         }
                     }
@@ -233,7 +237,9 @@ internal class LuaVM {
                                         fallthrough
                                     }
                                 case .RETURN:
-                                    if let hook = state.hookFunction, state.hookFlags.contains(.return) {
+                                    if let hook = state.hookFunction, state.allowHooks && state.hookFlags.contains(.return) {
+                                        state.allowHooks = false
+                                        defer {state.allowHooks = true}
                                         _ = try await hook.call(in: state, with: [.string(.string("return"))])
                                     }
                                     _ = state.callStack.popLast()
@@ -424,7 +430,9 @@ internal class LuaVM {
                     ci.stack = [LuaValue](ci.stack[0..<idx])
                 }
                 state.callStack.append(nextci)
-                if let hook = state.hookFunction, state.hookFlags.contains(tailCall ? .tailCall : .call) {
+                if let hook = state.hookFunction, state.allowHooks && state.hookFlags.contains(tailCall ? .tailCall : .call) {
+                    state.allowHooks = false
+                    defer {state.allowHooks = true}
                     _ = try await hook.call(in: state, with: [.string(.string(tailCall ? "tail call" : "call"))])
                 }
                 return nextci
@@ -432,12 +440,16 @@ internal class LuaVM {
                 state.callStack.append(CallInfo(for: fn, numResults: returns, stackSize: 0))
                 let argv = args != nil ? (args == 0 ? [] : [LuaValue](ci.stack[(idx + 1) ... (idx + args!)])) : [LuaValue](ci.stack[(idx+1)..<ci.top])
                 //print("Arguments:", argv)
-                if let hook = state.hookFunction, state.hookFlags.contains(tailCall ? .tailCall : .call) {
+                if let hook = state.hookFunction, state.allowHooks && state.hookFlags.contains(tailCall ? .tailCall : .call) {
+                    state.allowHooks = false
+                    defer {state.allowHooks = true}
                     _ = try await hook.call(in: state, with: [.string(.string(tailCall ? "tail call" : "call"))])
                 }
                 let L = Lua(in: state)
                 var res = try await sfn.body(L, LuaArgs(argv, state: L))
-                if !tailCall, let hook = state.hookFunction, state.hookFlags.contains(.return) {
+                if !tailCall, let hook = state.hookFunction, state.allowHooks && state.hookFlags.contains(.return) {
+                    state.allowHooks = false
+                    defer {state.allowHooks = true}
                     _ = try await hook.call(in: state, with: [.string(.string("return"))])
                 }
                 //print("Results:", res)

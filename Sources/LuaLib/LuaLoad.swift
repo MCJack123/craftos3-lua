@@ -33,7 +33,7 @@ public class LuaLoad {
             if source.hasPrefix("#") {
                 source = String(source[source.index(after: source.firstIndex(of: "\n") ?? source.index(before: source.endIndex))...])
             }
-            return try await load(using: {if !called {called = true; return source.bytes} else {return nil}}, named: name?.bytes ?? "[string '\(source[source.startIndex..<(source.index(source.startIndex, offsetBy: 30, limitedBy: source.endIndex) ?? source.endIndex)])']", mode: mode, environment: env)
+            return try await load(using: {if !called {called = true; return source.bytes} else {return nil}}, named: name?.bytes ?? source.bytes, mode: mode, environment: env)
         }
     }
 
@@ -63,7 +63,7 @@ public class LuaLoad {
             if source.starts(with: "#" as [UInt8]) {
                 source = [UInt8](source[source.index(after: source.firstIndex(of: "\n") ?? source.index(before: source.endIndex))...])
             }
-            return try await load(using: {if !called {called = true; return source} else {return nil}}, named: name ?? "[string '\(source[source.startIndex..<(source.index(source.startIndex, offsetBy: 30, limitedBy: source.endIndex) ?? source.endIndex)])']", mode: mode, environment: env)
+            return try await load(using: {if !called {called = true; return source} else {return nil}}, named: name ?? source, mode: mode, environment: env)
         }
     }
 

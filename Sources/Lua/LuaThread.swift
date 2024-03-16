@@ -67,6 +67,7 @@ public class LuaThread: Hashable {
     internal var hookFlags: Lua.HookFlags = []
     internal var hookCount: Int = 0
     internal var hookCountLeft: Int = 0
+    internal var allowHooks = true
     
     /// The current state of the coroutine.
     public private(set) var state: State = .suspended

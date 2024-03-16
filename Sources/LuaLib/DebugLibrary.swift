@@ -37,8 +37,12 @@ internal class DebugLibrary {
         return []
     }
 
-    private func getinfotype(_ types: String) -> Lua.Debug.InfoFlags {
+    private func getinfotype(_ types: String, state: Lua) throws -> Lua.Debug.InfoFlags {
         var retval = Lua.Debug.InfoFlags()
+        let bad = types.filter {!($0 == "n" || $0 == "S" || $0 == "l" || $0 == "u" || $0 == "t" || $0 == "f" || $0 == "L")}
+        if !bad.isEmpty {
+            throw Lua.error(in: state, message: "invalid option \(bad.first!)")
+        }
         if types.contains("n") {retval.insert(.name)}
         if types.contains("S") {retval.insert(.source)}
         if types.contains("l") {retval.insert(.line)}
@@ -55,7 +59,7 @@ internal class DebugLibrary {
         if args.count >= 3 {
             // thread, f, what
             let st = Lua(in: try args.checkThread(at: 1))
-            types = getinfotype(try args.checkString(at: 3))
+            types = try getinfotype(try args.checkString(at: 3), state: state)
             switch args[2] {
                 case .function(let fn): db = st.info(for: fn, with: types)
                 case .number(let n):
@@ -70,10 +74,10 @@ internal class DebugLibrary {
             // thread, f; or f, what
             switch args[1] {
                 case .function(let fn):
-                    types = getinfotype(try args.checkString(at: 2))
+                    types = try getinfotype(try args.checkString(at: 2), state: state)
                     db = state.info(for: fn, with: types)
                 case .number(let n):
-                    types = getinfotype(try args.checkString(at: 2))
+                    types = try getinfotype(try args.checkString(at: 2), state: state)
                     if let info = state.info(at: Int(n), with: types) {
                         db = info
                     } else {
@@ -111,7 +115,7 @@ internal class DebugLibrary {
         }
         let tab = LuaTable(state: state)
         if types.contains(.name) {
-            tab["name"] = .string(.string(db.name!))
+            tab["name"] = db.nameWhat == .unknown ? .nil : .string(.string(db.name!))
             switch db.nameWhat! {
                 case .constant: tab["namewhat"] = .string(.string("constant"))
                 case .field: tab["namewhat"] = .string(.string("field"))
@@ -126,6 +130,7 @@ internal class DebugLibrary {
         }
         if types.contains(.source) {
             tab["source"] = .string(.string(db.source!))
+            tab["short_src"] = .string(.string(db.short_src!))
             switch db.what! {
                 case .lua: tab["what"] = .string(.string("Lua"))
                 case .swift: tab["what"] = .string(.string("C"))
@@ -149,11 +154,13 @@ internal class DebugLibrary {
             tab["func"] = .function(db.function!)
         }
         if types.contains(.lines) {
-            let lines = LuaTable(state: state)
-            for k in db.validLines! {
-                lines[.number(Double(k))] = .boolean(true)
+            if !db.validLines!.isEmpty {
+                let lines = LuaTable(state: state)
+                for k in db.validLines! {
+                    lines[.number(Double(k))] = .boolean(true)
+                }
+                tab["activelines"] = .table(lines)
             }
-            tab["activelines"] = .table(lines)
         }
         return tab
     }
@@ -294,7 +301,7 @@ internal class DebugLibrary {
                     case .upvalue: namewhat = "upvalue"
                     case .unknown: namewhat = "function"
                 }
-                retval += "  \(info.source!.string):\(info.currentLine!): in \(namewhat) '\(info.name!)'\n"
+                retval += "  \(info.short_src!):\(info.currentLine!): in \(namewhat) '\(info.name!)'\n"
             } else {
                 break
             }

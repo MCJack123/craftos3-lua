@@ -63,6 +63,7 @@ public class Lua {
         public var nameWhat: NameType?
         public var what: FunctionType?
         public var source: [UInt8]?
+        public var short_src: String?
         public var currentLine: Int?
         public var lineDefined: Int?
         public var lastLineDefined: Int?
@@ -88,7 +89,7 @@ public class Lua {
         if idx >= 0 && idx < thread.callStack.count {
             let ci = thread.callStack[idx]
             if case let .lua(cl) = ci.function, ci.savedpc < cl.proto.lineinfo.count {
-                return LuaError.runtimeError(message: "\(cl.proto.name.string):\(cl.proto.lineinfo[ci.savedpc]): \(text)")
+                return LuaError.runtimeError(message: "\(shortSource(for: cl)):\(cl.proto.lineinfo[ci.savedpc]): \(text)")
             }
         }
         return LuaError.runtimeError(message: text)
@@ -237,7 +238,7 @@ public class Lua {
                             return (kname(p, pc, c), .method)
                         default: break
                     }
-                case .iABx(let op, let a, let bx):
+                case .iABx(let op, _, let bx):
                     switch op {
                         case .LOADK, .LOADKX:
                             let b: UInt32
@@ -262,7 +263,7 @@ public class Lua {
         guard case let .lua(cl) = ci.function else {return nil}
         let p = cl.proto
         let pc = ci.savedpc - 1
-        let i = p.opcodes[pc]
+        let i = p.opcodes[pc == -1 ? 0 : pc]
         switch i {
             case .iABC(let op, let a, _, _):
                 switch op {
@@ -294,6 +295,28 @@ public class Lua {
 
     /* }====================================================== */
 
+    private static func shortSource(for cl: LuaClosure) -> String {
+        if cl.proto.name.first == "@" {
+            if cl.proto.name.count > 61 {
+                return "..." + [UInt8](cl.proto.name[cl.proto.name.index(cl.proto.name.endIndex, offsetBy: -57)..<cl.proto.name.endIndex]).string
+            } else {
+                var s = cl.proto.name.string
+                s.removeFirst()
+                return s
+            }
+        } else if cl.proto.name.first == "=" {
+            let name = cl.proto.name.string
+            return String(name[name.index(after: name.startIndex)..<(name.index(name.startIndex, offsetBy: 61, limitedBy: name.endIndex) ?? name.endIndex)])
+        } else {
+            let name = [UInt8](cl.proto.name.prefix(while: {$0 != "\n"})).string
+            if name.count > 49 || cl.proto.name.contains("\n") {
+                return "[string \"\(name[name.startIndex..<(name.index(name.startIndex, offsetBy: 46, limitedBy: name.endIndex) ?? name.endIndex)])...\"]"
+            } else {
+                return "[string \"\(name)\"]"
+            }
+        }
+    }
+
     private func info(with options: Debug.InfoFlags, in ci: CallInfo?, previous: CallInfo?, for function: LuaFunction, at level: Int?) -> Debug {
         var retval = Debug()
         if options.contains(.name) {
@@ -314,11 +337,13 @@ public class Lua {
                         retval.what = .lua
                     }
                     retval.source = cl.proto.name
+                    retval.short_src = Lua.shortSource(for: cl)
                     retval.lineDefined = Int(cl.proto.lineDefined)
                     retval.lastLineDefined = Int(cl.proto.lastLineDefined)
                 case .swift:
                     retval.what = .swift
                     retval.source = "[C]"
+                    retval.short_src = "[C]"
                     retval.lineDefined = -1
                     retval.lastLineDefined = -1
             }
@@ -327,7 +352,7 @@ public class Lua {
             switch function {
                 case .lua(let cl):
                     if let ci = ci, ci.savedpc-1 < cl.proto.lineinfo.count {
-                        retval.currentLine = Int(cl.proto.lineinfo[ci.savedpc-1])
+                        retval.currentLine = Int(cl.proto.lineinfo[ci.savedpc == 0 ? 0 : ci.savedpc-1])
                     } else {
                         retval.currentLine = -1
                     }
