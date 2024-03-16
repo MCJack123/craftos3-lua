@@ -1,4 +1,4 @@
-public class LuaThread: Hashable {
+public actor LuaThread: Hashable {
     public static func == (lhs: LuaThread, rhs: LuaThread) -> Bool {
         return lhs.task == rhs.task
     }
@@ -62,7 +62,7 @@ public class LuaThread: Hashable {
     private var task: Task<Void, Error>!
     private var continuation: CheckedContinuation<[LuaValue], Error>!
     internal var callStack = [CallInfo]()
-    internal var luaState: LuaState
+    internal let luaState: LuaState
     internal var hookFunction: LuaFunction?
     internal var hookFlags: Lua.HookFlags = []
     internal var hookCount: Int = 0

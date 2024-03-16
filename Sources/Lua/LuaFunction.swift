@@ -7,7 +7,7 @@ public enum LuaFunction: Hashable {
             case .lua(let cl):
                 let top = state.callStack.count
                 do {
-                    return try await LuaVM.execute(closure: cl, with: args, numResults: nil, state: state)
+                    return try await CallInfo.execute(closure: cl, with: args, numResults: nil, state: state)
                 } catch let error {
                     state.callStack.removeLast(state.callStack.count - top)
                     throw error
@@ -27,7 +27,7 @@ public enum LuaFunction: Hashable {
             case .lua(let cl):
                 let top = state.callStack.count
                 do {
-                    return try await LuaVM.execute(closure: cl, with: args, numResults: nil, state: state)
+                    return try await CallInfo.execute(closure: cl, with: args, numResults: nil, state: state)
                 } catch LuaThread.CoroutineError.cancel {
                     throw LuaThread.CoroutineError.cancel
                 } catch let error {
