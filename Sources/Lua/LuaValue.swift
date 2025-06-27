@@ -9,7 +9,7 @@ public enum LuaValue: Hashable, Sendable {
     case table(LuaTable)
 
     public static func object(_ obj: LuaObject) -> LuaValue {
-        return .userdata(obj.userdata)
+        return .userdata(obj.userdata())
     }
 
     public static func value(_ val: Bool) -> LuaValue {
@@ -65,7 +65,7 @@ public enum LuaValue: Hashable, Sendable {
     }
 
     public static func value(_ val: LuaObject) -> LuaValue {
-        return .userdata(val.userdata)
+        return .userdata(val.userdata())
     }
 
     public static func value(_ val: LuaUserdata) -> LuaValue {

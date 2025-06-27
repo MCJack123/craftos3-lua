@@ -1,27 +1,25 @@
 import Lua
 
-public protocol LuaLibrary {
+public protocol LuaLibrary: Sendable {
     var name: String {get}
-    var table: LuaTable {get async}
+    func table() async -> LuaTable
 }
 
 public extension LuaLibrary {
-    var table: LuaTable {
-        get async {
-            let tab = LuaTable()
-            var names = [String]()
-            for child in Mirror(reflecting: self).children {
-                if let fn = child.value as? LuaSwiftFunction, let label = child.label {
-                    names.append(label)
-                    await tab.set(index: label, value: .function(.swift(fn)))
-                } else if let val = child.value as? LuaValue, let label = child.label {
-                    names.append(label)
-                    await tab.set(index: label, value: val)
-                }
+    func table() async -> LuaTable {
+        let tab = LuaTable()
+        var names = [String]()
+        for child in Mirror(reflecting: self).children {
+            if let fn = child.value as? LuaSwiftFunction, let label = child.label {
+                names.append(label)
+                await tab.set(index: label, value: .function(.swift(fn)))
+            } else if let val = child.value as? LuaValue, let label = child.label {
+                names.append(label)
+                await tab.set(index: label, value: val)
             }
-            //print("Library \(name): \(names.joined(separator: " "))")
-            return tab
         }
+        //print("Library \(name): \(names.joined(separator: " "))")
+        return tab
     }
 }
 
@@ -31,7 +29,7 @@ public macro LuaLibrary(named: String) = #externalMacro(module: "LuaMacros", typ
 public extension LuaState {
     init(withLibraries: Bool) async {
         await self.init()
-        let _G = await BaseLibrary().table
+        let _G = await BaseLibrary().table()
         await _G.set(index: "_G", value: .table(_G))
         await _G.set(index: "_VERSION", value: .string(.string("Lua 5.2")))
         await _G.load(library: Bit32Library())
@@ -52,6 +50,6 @@ public extension LuaState {
 public extension LuaTable {
     func load(library: LuaLibrary, named name: String? = nil) async {
         let nam = name ?? library.name
-        self[nam] = .table(await library.table)
+        self[nam] = .table(await library.table())
     }
 }

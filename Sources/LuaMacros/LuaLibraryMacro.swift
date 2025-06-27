@@ -49,7 +49,7 @@ public struct LuaLibraryMacro: ExtensionMacro {
                     }
                 }
                 if call.hasSuffix(", ") {call = String(call[call.startIndex..<call.index(call.endIndex, offsetBy: -2)])}
-                if fn.signature.effectSpecifiers?.asyncSpecifier != nil {
+                if fn.signature.effectSpecifiers?.asyncSpecifier != nil || declaration.is(ActorDeclSyntax.self) {
                     call = "await " + call
                 }
                 if fn.signature.effectSpecifiers?.throwsClause?.throwsSpecifier != nil {
@@ -100,7 +100,7 @@ public struct LuaLibraryMacro: ExtensionMacro {
                     }
                 }
                 if call.hasSuffix(", ") {call = String(call[call.startIndex..<call.index(call.endIndex, offsetBy: -2)])}
-                if fn.signature.effectSpecifiers?.asyncSpecifier != nil {
+                if fn.signature.effectSpecifiers?.asyncSpecifier != nil || declaration.is(ActorDeclSyntax.self) {
                     call = "await " + call
                 }
                 if fn.signature.effectSpecifiers?.throwsClause?.throwsSpecifier != nil {
@@ -152,8 +152,8 @@ public struct LuaLibraryMacro: ExtensionMacro {
         let objectExtension: DeclSyntax =
             """
             extension \(type.trimmed): LuaLibrary {
-                public var name: String {return \(node.arguments!.as(LabeledExprListSyntax.self)!.first!.expression)}
-                public var table: LuaTable {
+                public \(raw: declaration.is(ActorDeclSyntax.self) ? "nonisolated " : "")var name: String {return \(node.arguments!.as(LabeledExprListSyntax.self)!.first!.expression)}
+                public func table() async -> LuaTable {
                     return LuaTable(from: [
                         \(retval)
                     ])

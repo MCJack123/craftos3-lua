@@ -12,7 +12,7 @@ fileprivate struct JavaRandomNumberGenerator: RandomNumberGenerator {
     }
 }
 
-internal class MathLibrary: LuaLibrary {
+internal actor MathLibrary: LuaLibrary {
     public let name = "math"
     private var rng = JavaRandomNumberGenerator()
 
@@ -95,7 +95,7 @@ internal class MathLibrary: LuaLibrary {
         return []
     }
 
-    public init() {
+    public init() async {
         random = LuaSwiftFunction(from: _random)
         randomseed = LuaSwiftFunction(from: _randomseed)
     }

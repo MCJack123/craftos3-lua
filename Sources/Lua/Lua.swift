@@ -1,4 +1,4 @@
-public class Lua {
+public final class Lua: Sendable {
     public enum LuaError: Error {
         case runtimeError(message: String)
         case luaError(message: LuaValue)
@@ -207,5 +207,5 @@ public class Lua {
 public macro LuaObject() = #externalMacro(module: "LuaMacros", type: "LuaObjectMacro")
 
 public protocol LuaObject {
-    var userdata: LuaUserdata {get}
+    func userdata() -> LuaUserdata
 }

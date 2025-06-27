@@ -1,4 +1,4 @@
-public struct LuaArgs {
+public struct LuaArgs: Sendable {
     public let args: [LuaValue]
     private let state: Lua?
 

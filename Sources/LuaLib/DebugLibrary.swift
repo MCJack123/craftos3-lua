@@ -1,7 +1,7 @@
 import Lua
 
 @LuaLibrary(named: "debug")
-internal class DebugLibrary {
+internal final class DebugLibrary {
     public func debug(_ state: Lua) async throws {
         while true {
             if let line = readLine(), line != "cont" {

@@ -47,7 +47,8 @@ let package = Package(
             swiftSettings: [
                 .enableUpcomingFeature("DisableOutwardActorInterference"),
                 .enableUpcomingFeature("GlobalConcurrency"),
-                .enableUpcomingFeature("InferSendablesFromCaptures")
+                .enableUpcomingFeature("InferSendablesFromCaptures"),
+                .enableExperimentalFeature("StrictConcurrency")
             ]),
         .executableTarget(
             name: "LuaC",

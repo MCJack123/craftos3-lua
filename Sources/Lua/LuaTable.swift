@@ -410,11 +410,11 @@ public actor LuaTable: Hashable {
         return false
     }
 
-    public func isolated<T>(_ closure: (isolated LuaTable) async throws -> T) async rethrows -> T {
+    public func isolated<T>(_ closure: @Sendable (isolated LuaTable) async throws -> T) async rethrows -> T {
         return try await closure(self)
     }
 
-    public func isolated(_ closure: (isolated LuaTable) async throws -> Void) async rethrows {
+    public func isolated(_ closure: @Sendable (isolated LuaTable) async throws -> Void) async rethrows {
         return try await closure(self)
     }
 }

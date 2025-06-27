@@ -42,9 +42,11 @@ internal extension Sequence {
 
         return values
     }
+}
 
-    func concurrentMap<T>(
-        _ transform: @escaping (Element) async throws -> T
+internal extension Sequence where Element: Sendable {
+    func concurrentMap<T: Sendable>(
+        _ transform: @Sendable @escaping (Element) async throws -> T
     ) async throws -> [T] {
         let tasks = map { element in
             Task {
@@ -57,8 +59,8 @@ internal extension Sequence {
         }
     }
 
-    func concurrentMap<T>(
-        _ transform: @escaping (Element) async -> T
+    func concurrentMap<T: Sendable>(
+        _ transform: @Sendable @escaping (Element) async -> T
     ) async -> [T] {
         let tasks = map { element in
             Task {

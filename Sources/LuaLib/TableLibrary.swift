@@ -71,15 +71,16 @@ internal struct TableLibrary: LuaLibrary {
         // TODO: add sorting function
         // guh, I need to write my own sorting algorithm for this because the comparator can yield
         let _t = try await args.checkTable(at: 1)
-        var arr = [LuaValue]()
-        var i = 1
-        await _t.isolated {t in
+        var arr = await _t.isolated {t in
+            var arr = [LuaValue]()
+            var i = 1
             while true {
                 let v = t[i]
                 if v == .nil {break}
                 arr.append(v)
                 i += 1
             }
+            return arr
         }
         try arr.sort {a, b in 
             if case let .number(an) = a, case let .number(bn) = b {
@@ -93,8 +94,9 @@ internal struct TableLibrary: LuaLibrary {
                 throw Lua.LuaError.runtimeError(message: "attempt to compare two ? values")
             }
         }
+        let arr_ = arr
         await _t.isolated {t in
-            for (i, v) in arr.enumerated() {
+            for (i, v) in arr_.enumerated() {
                 t[i+1] = v
             }
         }

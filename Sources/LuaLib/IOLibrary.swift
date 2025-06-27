@@ -4,7 +4,7 @@ import LibC
 typealias FileDescriptor = UnsafeMutablePointer<FILE>
 
 @LuaObject
-internal class FileObject {
+internal actor FileObject {
     fileprivate let handle: FileDescriptor?
 
     fileprivate func read(mode: LuaValue, state: Lua) async throws -> LuaValue {
@@ -152,16 +152,20 @@ internal class FileObject {
         return [.object(self)]
     }
 
+    internal func isOpen() -> Bool {
+        return handle != nil
+    }
+
     init(_ h: FileDescriptor) {
         handle = h
     }
 }
 
 @LuaLibrary(named: "io")
-internal class IOLibrary {
-    public static let stdin = FileObject(LibC.stdin)
-    public static let stdout = FileObject(LibC.stdout)
-    public static let stderr = FileObject(LibC.stderr)
+internal actor IOLibrary {
+    public static let stdin = FileObject(LibC.stdin_())
+    public static let stdout = FileObject(LibC.stdout_())
+    public static let stderr = FileObject(LibC.stderr_())
 
     private var inputHandle = stdin
     private var outputHandle = stdout
@@ -169,23 +173,14 @@ internal class IOLibrary {
     public func close(_ state: Lua, file: LuaValue?) async throws {
         if let file = file {
             let handle = try file.checkUserdata(at: 1, as: FileObject.self)
-            guard let handle = handle.handle else {
-                throw await Lua.error(in: state, message: "attempt to use a closed file")
-            }
-            fclose(handle)
+            try await handle.close(state)
         } else {
-            guard let handle = outputHandle.handle else {
-                throw await Lua.error(in: state, message: "attempt to use a closed file")
-            }
-            fclose(handle)
+            try await outputHandle.close(state)
         }
     }
 
     public func flush(_ state: Lua) async throws {
-        guard let handle = outputHandle.handle else {
-            throw await Lua.error(in: state, message: "attempt to use a closed file")
-        }
-        fflush(handle)
+        try await outputHandle.flush(state)
     }
 
     public func input(_ state: Lua, file: LuaValue?) async throws -> LuaValue {
@@ -212,7 +207,7 @@ internal class IOLibrary {
         if let fp = fopen(try await args.checkString(at: 1), "r") {
             let handle = FileObject(fp)
             return .function(.swift(LuaSwiftFunction {_state, _args in
-                if handle.handle == nil {
+                if await !handle.isOpen() {
                     return []
                 }
                 if args.count == 0 {
@@ -254,13 +249,14 @@ internal class IOLibrary {
             var handle: FileObject!
             if case let .string(path) = file {
                 do {
-                    try path.string.withCString {_path in
+                    let h = try path.string.withCString {_path in
                         if let h = fopen(_path, "w") {
-                            handle = FileObject(h)
+                            return h
                         } else {
                             throw Lua.LuaError.runtimeError(message: String(cString: strerror(errno_())))
                         }
                     }
+                    handle = FileObject(h)
                 } catch let error as Lua.LuaError {
                     if case let .runtimeError(str) = error {
                         throw await Lua.error(in: state, message: str)
@@ -296,10 +292,10 @@ internal class IOLibrary {
         return .object(FileObject(LibC.tmpfile()))
     }
 
-    public func type(value: LuaValue) -> String? {
+    public func type(value: LuaValue) async -> String? {
         do {
             let handle = try value.checkUserdata(at: 1, as: FileObject.self)
-            if handle.handle != nil {
+            if await handle.isOpen() {
                 return "file"
             } else {
                 return "closed file"

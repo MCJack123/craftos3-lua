@@ -1,7 +1,7 @@
 import Lua
 import Foundation
 
-internal class OSLibrary: LuaLibrary {
+internal actor OSLibrary: LuaLibrary {
     public let name = "os"
     private var locale = Locale.current
 
@@ -173,7 +173,7 @@ internal class OSLibrary: LuaLibrary {
         #endif
     }
 
-    public init() {
+    public init() async {
         setlocale = LuaSwiftFunction(from: _setlocale)
     }
 }
