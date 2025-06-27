@@ -1,6 +1,6 @@
 import Lua
 
-internal class LuaParser {
+internal struct LuaParser {
     private var lexer: LuaLexer
     private let coder: LuaCode
     private var tokens = [LuaLexer.Token]()
@@ -47,7 +47,7 @@ internal class LuaParser {
         _ = try await next()
     }
 
-    private func next() async throws {
+    private mutating func next() async throws {
         if !tokens.isEmpty && !saving {
             let tok = tokens.removeFirst()
             current = tok
@@ -62,7 +62,7 @@ internal class LuaParser {
         }
     }
 
-    private func readName() async throws -> String {
+    private mutating func readName() async throws -> String {
         let tok = current
         guard case let .name(name, _) = tok else {
             if case let .keyword(kw, _) = tok, kw == .goto {
@@ -74,7 +74,7 @@ internal class LuaParser {
         return name
     }
 
-    private func readString() async throws -> [UInt8] {
+    private mutating func readString() async throws -> [UInt8] {
         let tok = current
         guard case let .string(str, _) = tok else {
             throw Error.syntaxError(message: "string expected", token: tok)
@@ -83,7 +83,7 @@ internal class LuaParser {
         return str
     }
 
-    private func readNumber() async throws -> Double {
+    private mutating func readNumber() async throws -> Double {
         let tok = current
         guard case let .number(num, _) = tok else {
             throw Error.syntaxError(message: "number expected", token: tok)
@@ -92,28 +92,28 @@ internal class LuaParser {
         return num
     }
 
-    private func consume(keyword w: LuaLexer.Keyword) async throws {
+    private mutating func consume(keyword w: LuaLexer.Keyword) async throws {
         guard case let .keyword(v, _) = current, v == w else {
             throw Error.syntaxError(message: "'\(w.rawValue)' expected", token: current)
         }
         try await next()
     }
 
-    private func consume(operator w: LuaLexer.Operator) async throws {
+    private mutating func consume(operator w: LuaLexer.Operator) async throws {
         guard case let .operator(v, _) = current, v == w else {
             throw Error.syntaxError(message: "'\(w.rawValue)' expected", token: current)
         }
         try await next()
     }
 
-    private func consume(constant w: LuaLexer.Constant) async throws {
+    private mutating func consume(constant w: LuaLexer.Constant) async throws {
         guard case let .constant(v, _) = current, v == w else {
             throw Error.syntaxError(message: "'\(w.rawValue)' expected", token: current)
         }
         try await next()
     }
 
-    private func block() async throws {
+    private mutating func block() async throws {
         while true {
             guard let tok = current else {
                 return
@@ -331,7 +331,7 @@ internal class LuaParser {
         }
     }
 
-    private func brackets(start: LuaLexer.Operator, end: LuaLexer.Operator) async throws {
+    private mutating func brackets(start: LuaLexer.Operator, end: LuaLexer.Operator) async throws {
         var pc = 1
         while pc > 0 {
             try await next()
@@ -343,7 +343,7 @@ internal class LuaParser {
         try await next()
     }
 
-    private func callorassign() async throws {
+    private mutating func callorassign() async throws {
         let start = try await prefixexp()
         switch start {
             case .call, .callSelf:
@@ -371,7 +371,7 @@ internal class LuaParser {
         coder.assign(to: names, from: explist)
     }
 
-    private func args() async throws -> [Expression] {
+    private mutating func args() async throws -> [Expression] {
         if case let .string(str, _) = current {
             try await next()
             return [.constant(.string(.string(str)))]
@@ -399,7 +399,7 @@ internal class LuaParser {
         }
     }
 
-    private func prefixexp() async throws -> PrefixExpression {
+    private mutating func prefixexp() async throws -> PrefixExpression {
         var retval: PrefixExpression
         let line = lexer.line
         defer {coder.line = line}
@@ -439,7 +439,7 @@ internal class LuaParser {
         }
     }
 
-    private func expitem() async throws -> Expression {
+    private mutating func expitem() async throws -> Expression {
         switch current {
             case .constant(let k, _):
                 try await next()
@@ -492,7 +492,7 @@ internal class LuaParser {
         .pow: 7
     ]
 
-    private func exp() async throws -> Expression {
+    private mutating func exp() async throws -> Expression {
         let line = lexer.line
         defer {coder.line = line}
         var ops = [LuaLexer.Operator]()
@@ -529,7 +529,7 @@ internal class LuaParser {
         return out[0]
     }
 
-    private func funcbody(addSelf: Bool) async throws -> Int {
+    private mutating func funcbody(addSelf: Bool) async throws -> Int {
         let line = lexer.line
         defer {coder.line = line}
         try await consume(operator: .lparen)
@@ -564,7 +564,7 @@ internal class LuaParser {
         return idx
     }
 
-    private func table() async throws -> Expression {
+    private mutating func table() async throws -> Expression {
         try await consume(operator: .lbrace)
         var fields = [TableEntry]()
         while true {
@@ -609,7 +609,7 @@ internal class LuaParser {
     }
 
     internal static func parse(from lex: LuaLexer) async throws -> LuaInterpretedFunction {
-        let parser = try await LuaParser(from: lex)
+        var parser = try await LuaParser(from: lex)
         try await parser.block()
         if parser.current != nil {
             throw Error.syntaxError(message: "<eof> expected", token: parser.current)

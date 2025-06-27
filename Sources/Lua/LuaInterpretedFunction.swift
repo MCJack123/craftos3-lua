@@ -60,7 +60,7 @@ private enum DumpValue {
     }
 }
 
-public class LuaInterpretedFunction: Hashable {
+public final class LuaInterpretedFunction: Hashable, Sendable {
     internal let opcodes: [LuaOpcode]
     internal let constants: [LuaValue]
     internal let prototypes: [LuaInterpretedFunction]

@@ -35,23 +35,23 @@ internal func convert(type: TypeSyntax, atParameter index: Int, defaultValue: In
     if let typ = type.as(IdentifierTypeSyntax.self) {
         switch typ.name.text {
             case "LuaValue":
-                return "let _\(raw: index) = args[\(raw: index)]"
+                return "let _\(raw: index) = args[\(raw: index)]\(raw: optional ? ".optional" : "")"
             case "Bool":
-                return "let _\(raw: index) = \(raw: optional ? "try?" : "try") args.checkBool(at: \(raw: index))\n"
+                return "let _\(raw: index) = \(raw: optional ? "try?" : "try") await args.checkBool(at: \(raw: index))\n"
             case "Int":
-                return "let _\(raw: index) = \(raw: optional ? "try?" : "try") args.checkInt(at: \(raw: index))\n"
+                return "let _\(raw: index) = \(raw: optional ? "try?" : "try") await args.checkInt(at: \(raw: index))\n"
             case "Double":
-                return "let _\(raw: index) = \(raw: optional ? "try?" : "try") args.checkNumber(at: \(raw: index))\n"
+                return "let _\(raw: index) = \(raw: optional ? "try?" : "try") await args.checkNumber(at: \(raw: index))\n"
             case "String":
-                return "let _\(raw: index) = \(raw: optional ? "try?" : "try") args.checkString(at: \(raw: index))\n"
+                return "let _\(raw: index) = \(raw: optional ? "try?" : "try") await args.checkString(at: \(raw: index))\n"
             case "LuaTable":
-                return "let _\(raw: index) = \(raw: optional ? "try?" : "try") args.checkTable(at: \(raw: index))\n"
+                return "let _\(raw: index) = \(raw: optional ? "try?" : "try") await args.checkTable(at: \(raw: index))\n"
             case "LuaFunction":
-                return "let _\(raw: index) = \(raw: optional ? "try?" : "try") args.checkFunction(at: \(raw: index))\n"
+                return "let _\(raw: index) = \(raw: optional ? "try?" : "try") await args.checkFunction(at: \(raw: index))\n"
             case "LuaThread":
-                return "let _\(raw: index) = \(raw: optional ? "try?" : "try") args.checkThread(at: \(raw: index))\n"
+                return "let _\(raw: index) = \(raw: optional ? "try?" : "try") await args.checkThread(at: \(raw: index))\n"
             case "LuaUserdata":
-                return "let _\(raw: index) = \(raw: optional ? "try?" : "try") args.checkUserdata(at: \(raw: index))\n"
+                return "let _\(raw: index) = \(raw: optional ? "try?" : "try") await args.checkUserdata(at: \(raw: index))\n"
             default:
                 let e = LuaMacroError.typeError(node: type, text: typ.name.text)
                 context.addDiagnostics(from: e, node: type)
@@ -68,7 +68,7 @@ internal func convert(typeForReturnValue type: TypeSyntax, context: some MacroEx
         var items = [ArrayElementSyntax]()
         for (i, t) in typ.elements.enumerated() {
             if let typ = t.type.as(OptionalTypeSyntax.self) {
-                if let typ = typ.as(IdentifierTypeSyntax.self) {
+                if let typ = typ.wrappedType.as(IdentifierTypeSyntax.self) {
                     switch typ.name.text {
                         case "LuaValue":
                             items.append(ArrayElementSyntax(expression: ExprSyntax("res.\(raw: i) ?? .nil, ")))

@@ -1,5 +1,5 @@
-public class LuaClosure: Hashable {
-    public var upvalues: [LuaUpvalue]
+public final class LuaClosure: Hashable, Sendable {
+    public let upvalues: [LuaUpvalue]
     public let proto: LuaInterpretedFunction
 
     public init(for fn: LuaInterpretedFunction, with upval: [LuaUpvalue]) {

@@ -1,4 +1,4 @@
-public enum LuaValue: Hashable {
+public enum LuaValue: Hashable, Sendable {
     case `nil`
     case boolean(Bool)
     case number(Double)
@@ -102,33 +102,33 @@ public enum LuaValue: Hashable {
         ]
     }
 
-    public func metatable(in state: LuaState) -> LuaTable? {
+    public func metatable(in state: LuaState) async -> LuaTable? {
         switch self {
-            case .table(let tbl): return tbl.metatable
-            case .userdata(let ud): return ud.metatable
-            case .nil: return state.nilMetatable
-            case .boolean: return state.booleanMetatable
-            case .number: return state.numberMetatable
-            case .string: return state.stringMetatable
-            case .function: return state.functionMetatable
-            case .thread: return state.threadMetatable
+            case .table(let tbl): return await tbl.metatable
+            case .userdata(let ud): return await ud.metatable
+            case .nil: return await state.nilMetatable
+            case .boolean: return await state.booleanMetatable
+            case .number: return await state.numberMetatable
+            case .string: return await state.stringMetatable
+            case .function: return await state.functionMetatable
+            case .thread: return await state.threadMetatable
         }
     }
 
-    public func metatable(in state: Lua) -> LuaTable? {
-        return metatable(in: state.thread.luaState)
+    public func metatable(in state: Lua) async -> LuaTable? {
+        return await metatable(in: state.thread.luaState)
     }
 
     public func index(_ index: LuaValue, in state: LuaThread) async throws -> LuaValue {
         switch self {
             case .table(let tbl):
-                let v = tbl[index]
+                let v = await tbl[index]
                 if v != .nil {
                     return v
                 }
             default: break
         }
-        if let mt = metatable(in: state.luaState)?[.Constants.__index] {
+        if let mt = await metatable(in: state.luaState)?[.Constants.__index] {
             switch mt {
                 case .table: return try await mt.index(index, in: state)
                 case .function(let fn):
@@ -139,7 +139,7 @@ public enum LuaValue: Hashable {
         }
         switch self {
             case .table: return .nil
-            default: throw Lua.error(in: state, message: "attempt to index a \(self.type) value")
+            default: throw await Lua.error(in: state, message: "attempt to index a \(self.type) value")
         }
     }
 
@@ -149,17 +149,16 @@ public enum LuaValue: Hashable {
 
     public func index(_ index: LuaValue, value: LuaValue, in state: LuaThread) async throws {
         if index == .nil {
-            throw Lua.error(in: state, message: "table index is nil")
+            throw await Lua.error(in: state, message: "table index is nil")
         }
         switch self {
             case .table(let tbl):
-                if tbl[index] != .nil {
-                    tbl[index] = value
+                if await tbl.trySet(index: index, value: value) {
                     return
                 }
             default: break
         }
-        if let mt = metatable(in: state.luaState)?[.Constants.__newindex] {
+        if let mt = await metatable(in: state.luaState)?[.Constants.__newindex] {
             switch mt {
                 case .function(let fn):
                     _ = try await fn.call(in: state, with: [self, index, value])
@@ -168,8 +167,8 @@ public enum LuaValue: Hashable {
             }
         }
         switch self {
-            case .table(let tbl): tbl[index] = value
-            default: throw Lua.error(in: state, message: "attempt to index a \(self.type) value")
+            case .table(let tbl): await tbl.set(index: index, value: value)
+            default: throw await Lua.error(in: state, message: "attempt to index a \(self.type) value")
         }
     }
 
@@ -191,44 +190,48 @@ public enum LuaValue: Hashable {
     }
 
     public var toString: String {
-        switch self {
-            case .nil: return "nil"
-            case .boolean(let val): return val ? "true" : "false"
-            case .number(let val):
-                if let i = Int(exactly: val) {
-                    return String(i)
-                }
-                return String(val)
-            case .string(let val): return val.string
-            case .function(let val):
-                switch val {
-                    case .lua(let cl): return "function: \(String(UInt(bitPattern: Unmanaged.passUnretained(cl).toOpaque()), radix: 16))"
-                    case .swift(let cl): return "function: \(String(UInt(bitPattern: Unmanaged.passUnretained(cl).toOpaque()), radix: 16))"
-                }
-            case .userdata(let val): return "\((try? val.metatable?["__name"].checkString(at: 0)) ?? "userdata"): \(String(UInt(bitPattern: Unmanaged.passUnretained(val).toOpaque()), radix: 16))"
-            case .thread(let val): return "thread: \(String(UInt(bitPattern: Unmanaged.passUnretained(val).toOpaque()), radix: 16))"
-            case .table(let val): return "\((try? val.metatable?["__name"].checkString(at: 0)) ?? "table"): \(String(UInt(bitPattern: Unmanaged.passUnretained(val).toOpaque()), radix: 16))"
+        get async {
+            switch self {
+                case .nil: return "nil"
+                case .boolean(let val): return val ? "true" : "false"
+                case .number(let val):
+                    if let i = Int(exactly: val) {
+                        return String(i)
+                    }
+                    return String(val)
+                case .string(let val): return val.string
+                case .function(let val):
+                    switch val {
+                        case .lua(let cl): return "function: \(String(UInt(bitPattern: Unmanaged.passUnretained(cl).toOpaque()), radix: 16))"
+                        case .swift(let cl): return "function: \(String(UInt(bitPattern: Unmanaged.passUnretained(cl).toOpaque()), radix: 16))"
+                    }
+                case .userdata(let val): return "\((try? await val.metatable?["__name"].checkString(at: 0)) ?? "userdata"): \(String(UInt(bitPattern: Unmanaged.passUnretained(val).toOpaque()), radix: 16))"
+                case .thread(let val): return "thread: \(String(UInt(bitPattern: Unmanaged.passUnretained(val).toOpaque()), radix: 16))"
+                case .table(let val): return "\((try? await val.metatable?["__name"].checkString(at: 0)) ?? "table"): \(String(UInt(bitPattern: Unmanaged.passUnretained(val).toOpaque()), radix: 16))"
+            }
         }
     }
 
     public var toBytes: [UInt8] {
-        switch self {
-            case .nil: return "nil"
-            case .boolean(let val): return val ? "true" : "false"
-            case .number(let val):
-                if let i = Int(exactly: val) {
-                    return String(i).bytes
-                }
-                return String(val).bytes
-            case .string(let val): return val.bytes
-            case .function(let val):
-                switch val {
-                    case .lua(let cl): return "function: \(String(UInt(bitPattern: Unmanaged.passUnretained(cl).toOpaque()), radix: 16))"
-                    case .swift(let cl): return "function: \(String(UInt(bitPattern: Unmanaged.passUnretained(cl).toOpaque()), radix: 16))"
-                }
-            case .userdata(let val): return "\((try? val.metatable?["__name"].checkString(at: 0)) ?? "userdata"): \(String(UInt(bitPattern: Unmanaged.passUnretained(val).toOpaque()), radix: 16))"
-            case .thread(let val): return "thread: \(String(UInt(bitPattern: Unmanaged.passUnretained(val).toOpaque()), radix: 16))"
-            case .table(let val): return "\((try? val.metatable?["__name"].checkString(at: 0)) ?? "table"): \(String(UInt(bitPattern: Unmanaged.passUnretained(val).toOpaque()), radix: 16))"
+        get async {
+            switch self {
+                case .nil: return "nil"
+                case .boolean(let val): return val ? "true" : "false"
+                case .number(let val):
+                    if let i = Int(exactly: val) {
+                        return String(i).bytes
+                    }
+                    return String(val).bytes
+                case .string(let val): return val.bytes
+                case .function(let val):
+                    switch val {
+                        case .lua(let cl): return "function: \(String(UInt(bitPattern: Unmanaged.passUnretained(cl).toOpaque()), radix: 16))"
+                        case .swift(let cl): return "function: \(String(UInt(bitPattern: Unmanaged.passUnretained(cl).toOpaque()), radix: 16))"
+                    }
+                case .userdata(let val): return "\((try? await val.metatable?["__name"].checkString(at: 0)) ?? "userdata"): \(String(UInt(bitPattern: Unmanaged.passUnretained(val).toOpaque()), radix: 16))"
+                case .thread(let val): return "thread: \(String(UInt(bitPattern: Unmanaged.passUnretained(val).toOpaque()), radix: 16))"
+                case .table(let val): return "\((try? await val.metatable?["__name"].checkString(at: 0)) ?? "table"): \(String(UInt(bitPattern: Unmanaged.passUnretained(val).toOpaque()), radix: 16))"
+            }
         }
     }
 

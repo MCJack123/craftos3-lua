@@ -1,4 +1,4 @@
-public class LuaUpvalue: Equatable {
+public actor LuaUpvalue: Equatable {
     private var stack: CallInfo?
     private var index: Int?
     private var _value: LuaValue?
@@ -13,39 +13,38 @@ public class LuaUpvalue: Equatable {
     }
 
     public var value: LuaValue {
-        get {
+        get async {
             if let stack = stack {
-                return stack.stack[index!]
+                return await stack.stack[index!]
             }
             if let _value = _value {
                 return _value
             }
             return .nil // this should never happen
-        } set (value) {
-            if let stack = stack {
-                stack.stack[index!] = value
-                return
-            }
-            _value = value
         }
+    }
+
+    public func set(value: LuaValue) async {
+        if let stack = stack {
+            await stack.set(at: index!, value: value)
+            return
+        }
+        _value = value
     }
 
     internal func `in`(stack ci: CallInfo, at pos: Int) -> Bool {
         return stack === ci && index == pos
     }
 
-    internal func close() {
+    internal func close() async {
         if let stack = stack {
-            _value = stack.stack[index!]
+            _value = await stack.stack[index!]
             self.stack = nil
             index = nil
         }
     }
 
     public static func == (lhs: LuaUpvalue, rhs: LuaUpvalue) -> Bool {
-        /*if lhs._value != nil || rhs._value != nil {
-            return false
-        }*/
-        return lhs.stack === rhs.stack && lhs.index == rhs.index && lhs._value == rhs._value
+        return lhs === rhs
     }
 }

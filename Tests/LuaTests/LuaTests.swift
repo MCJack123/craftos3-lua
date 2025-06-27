@@ -163,7 +163,7 @@ public class TestObject {
     
     public func testThrows(state: Lua, a: LuaValue) throws -> LuaTable {
         guard case let .table(t) = a else {
-            throw Lua.error(in: state, message: "not a table")
+            throw await Lua.error(in: state, message: "not a table")
         }
         return t
     }

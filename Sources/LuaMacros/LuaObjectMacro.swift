@@ -29,7 +29,12 @@ public struct LuaObjectMacro: MemberMacro, ExtensionMacro {
         return [extensionDecl]
     }
 
-    public static func expansion(of node: AttributeSyntax, providingMembersOf declaration: some DeclGroupSyntax, in context: some MacroExpansionContext) throws -> [DeclSyntax] {
+    public static func expansion(
+        of node: AttributeSyntax,
+        providingMembersOf declaration: some DeclGroupSyntax,
+        conformingTo protocols: [TypeSyntax],
+        in context: some MacroExpansionContext
+    ) throws -> [DeclSyntax] {
         let cname: String
         if let c = declaration.as(ActorDeclSyntax.self) {
             cname = c.name.text
@@ -68,7 +73,7 @@ public struct LuaObjectMacro: MemberMacro, ExtensionMacro {
                 if fn.signature.effectSpecifiers?.asyncSpecifier != nil {
                     call = "await " + call
                 }
-                if fn.signature.effectSpecifiers?.throwsSpecifier != nil {
+                if fn.signature.effectSpecifiers?.throwsClause?.throwsSpecifier != nil {
                     call = "try " + call
                 }
                 call += ")"
@@ -78,7 +83,7 @@ public struct LuaObjectMacro: MemberMacro, ExtensionMacro {
                 if let ret = fn.signature.returnClause {
                     return """
                     static let _\(raw: fn.name.text) = LuaSwiftFunction {state, args in
-                        let _self = try args.checkUserdata(at: 1, as: \(raw: cname).self)
+                        let _self = try await args.checkUserdata(at: 1, as: \(raw: cname).self)
                         \(CodeBlockItemListSyntax(argcheck.map {CodeBlockItemSyntax(item: .stmt($0))}))
                         let res = \(raw: call)
                         return \(try convert(typeForReturnValue: ret.type, context: context))
@@ -87,7 +92,7 @@ public struct LuaObjectMacro: MemberMacro, ExtensionMacro {
                 }
                 return """
                 static let _\(raw: fn.name.text) = LuaSwiftFunction {state, args in
-                    let _self = try args.checkUserdata(at: 1, as: \(raw: cname).self)
+                    let _self = try await args.checkUserdata(at: 1, as: \(raw: cname).self)
                     \(CodeBlockItemListSyntax(argcheck.map {CodeBlockItemSyntax(item: .stmt($0))}))
                     \(raw: call)
                     return []
@@ -116,7 +121,7 @@ public struct LuaObjectMacro: MemberMacro, ExtensionMacro {
                 if fn.signature.effectSpecifiers?.asyncSpecifier != nil {
                     call = "await " + call
                 }
-                if fn.signature.effectSpecifiers?.throwsSpecifier != nil {
+                if fn.signature.effectSpecifiers?.throwsClause?.throwsSpecifier != nil {
                     call = "try " + call
                 }
                 call += ")"
@@ -155,7 +160,7 @@ public struct LuaObjectMacro: MemberMacro, ExtensionMacro {
                 .contains(where: {$0.accessorSpecifier.text == "set"}) ?? false {
                 retval.append("""
                     static let __newindex = LuaSwiftFunction {state, args in
-                        let _self = try args.checkUserdata(at: 1, as: \(raw: cname).self)
+                        let _self = try await args.checkUserdata(at: 1, as: \(raw: cname).self)
                         _self[args[2]] = args[3]
                         return []
                     }
@@ -168,7 +173,7 @@ public struct LuaObjectMacro: MemberMacro, ExtensionMacro {
             """
             static let metatable = LuaTable(from: [
                 .string(.string("__index")): .function(.swift(LuaSwiftFunction {state, args in
-                    let _self = try args.checkUserdata(at: 1, as: \(raw: cname).self)
+                    let _self = try await args.checkUserdata(at: 1, as: \(raw: cname).self)
                     if case let .string(idx) = args[2] {
                         switch idx.string {
                             \(raw: metatable)

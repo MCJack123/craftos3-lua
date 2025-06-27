@@ -1,10 +1,20 @@
-public class LuaTable: Hashable {
+public actor LuaTable: Hashable {
     public static func == (lhs: LuaTable, rhs: LuaTable) -> Bool {
         return lhs === rhs
     }
 
-    public func hash(into hasher: inout Hasher) {
+    nonisolated public func hash(into hasher: inout Hasher) {
         hasher.combine(Unmanaged.passUnretained(self).toOpaque())
+    }
+
+    private enum Mode {
+        case none
+        case key
+        case value
+        case keyValue
+
+        public var isKey: Bool {return self == .key || self == .keyValue}
+        public var isValue: Bool {return self == .value || self == .keyValue}
     }
 
     private class MaybeWeakValue: Hashable {
@@ -100,51 +110,54 @@ public class LuaTable: Hashable {
     private var array = [MaybeWeakValue]() // TODO: resize array part
     private var weakKeys = false
     private var weakValues = false
+    private var __mode = Mode.none
+    private var __gc: LuaFunction? = nil
 
     private var _metatable: LuaTable? = nil
     public var metatable: LuaTable? {
         get {
             return _metatable
-        } set (value) {
-            _metatable = value
-            if case let .string(mode) = value?["__mode"] {
-                if mode.string.contains("k") && !weakKeys {
-                    weakKeys = true
-                    array = [] // numbers are never referenced => empty array portion
-                    let hash = self.hash
-                    self.hash = [MaybeWeakValue: MaybeWeakValue]()
-                    for (k, v) in hash {
-                        self.hash[MaybeWeakValue(weakly: k.value)] = v
-                    }
+        } 
+    }
+    public func set(metatable value: LuaTable?) async {
+        _metatable = value
+        if let mode = await value?.__mode {
+            if mode.isKey && !weakKeys {
+                weakKeys = true
+                array = [] // numbers are never referenced => empty array portion
+                let hash = self.hash
+                self.hash = [MaybeWeakValue: MaybeWeakValue]()
+                for (k, v) in hash {
+                    self.hash[MaybeWeakValue(weakly: k.value)] = v
                 }
-                if mode.string.contains("v") && !weakValues {
-                    weakValues = true
-                    for i in 0..<array.count {
-                        array[i] = MaybeWeakValue(weakly: array[i].value)
-                    }
-                    for (k, v) in hash {
-                        self.hash[k] = MaybeWeakValue(weakly: v.value)
-                    }
-                }
-            } else if weakKeys || weakValues {
-                if weakKeys {
-                    let hash = self.hash
-                    self.hash = [MaybeWeakValue: MaybeWeakValue]()
-                    for (k, v) in hash {
-                        self.hash[MaybeWeakValue(strongly: k.value)] = v
-                    }
-                }
-                if weakValues {
-                    for i in 0..<array.count {
-                        array[i] = MaybeWeakValue(strongly: array[i].value)
-                    }
-                    for (k, v) in hash {
-                        self.hash[k] = MaybeWeakValue(strongly: v.value)
-                    }
-                }
-                weakKeys = false
-                weakValues = false
             }
+            if mode.isValue && !weakValues {
+                weakValues = true
+                for i in 0..<array.count {
+                    array[i] = MaybeWeakValue(weakly: array[i].value)
+                }
+                for (k, v) in hash {
+                    self.hash[k] = MaybeWeakValue(weakly: v.value)
+                }
+            }
+        } else if weakKeys || weakValues {
+            if weakKeys {
+                let hash = self.hash
+                self.hash = [MaybeWeakValue: MaybeWeakValue]()
+                for (k, v) in hash {
+                    self.hash[MaybeWeakValue(strongly: k.value)] = v
+                }
+            }
+            if weakValues {
+                for i in 0..<array.count {
+                    array[i] = MaybeWeakValue(strongly: array[i].value)
+                }
+                for (k, v) in hash {
+                    self.hash[k] = MaybeWeakValue(strongly: v.value)
+                }
+            }
+            weakKeys = false
+            weakValues = false
         }
     }
     public var state: LuaState? = nil
@@ -192,7 +205,7 @@ public class LuaTable: Hashable {
         self.state = state
     }
 
-    public init(state: Lua) {
+    public init(state: Lua) async {
         self.state = state.thread.luaState
     }
 
@@ -202,7 +215,7 @@ public class LuaTable: Hashable {
         self.state = state
     }
 
-    public init(hash: Int, array: Int, state: Lua) {
+    public init(hash: Int, array: Int, state: Lua) async {
         self.hash = [MaybeWeakValue: MaybeWeakValue](minimumCapacity: hash)
         self.array = [MaybeWeakValue](repeating: MaybeWeakValue(strongly: .nil), count: array)
         self.state = state.thread.luaState
@@ -217,8 +230,9 @@ public class LuaTable: Hashable {
             .enumerated()
             .prefix(while: {$0 + 1 == $1.0})
             .map {MaybeWeakValue(strongly: $1.1)}
+        let count = self.array.count
         let hash = dict.filter {
-            if case let .number(n) = $0.key, let i = Int(exactly: n), i > 0 && i <= self.array.count {return false}
+            if case let .number(n) = $0.key, let i = Int(exactly: n), i > 0 && i <= count {return false}
             else {return true}
         }
         for (k, v) in hash {
@@ -226,18 +240,21 @@ public class LuaTable: Hashable {
         }
     }
 
-    private init(_ table: LuaTable) {
-        self.array = table.array
-        self.hash = table.hash
-        self.metatable = table.metatable
-        self.state = table.state
+    private init(array: [MaybeWeakValue], hash: [MaybeWeakValue: MaybeWeakValue], metatable: LuaTable?, state: LuaState) {
+        self.array = array
+        self.hash = hash
+        self._metatable = metatable
+        self.state = state
     }
 
-    deinit {
-        if let state = state, let mt = metatable, case .function = mt["__gc"] {
-            state.tablesToBeFinalized.append(LuaTable(self))
+    #if swift(>=6.2)
+    isolated deinit {
+        if let state = state, let mt = metatable, mt.__gc != nil {
+            let newtab = LuaTable(array: array, hash: hash, metatable: _metatable, state: state)
+            Task {await state.add(tableToFinalize: newtab)}
         }
     }
+    #endif
 
     public func next(key: LuaValue) -> LuaValue {
         if key == .nil {
@@ -291,7 +308,36 @@ public class LuaTable: Hashable {
             } else {
                 hash[MaybeWeakValue(strongly: index)] = nil
             }
+            if case let .string(str) = index {
+                if str.string == "__mode" {
+                    if case let .string(val) = value {
+                        if val.string.contains("k") {
+                            if val.string.contains("v") {
+                                __mode = .keyValue
+                            } else {
+                                __mode = .key
+                            }
+                        } else if val.string.contains("v") {
+                            __mode = .value
+                        } else {
+                            __mode = .none
+                        }
+                    } else {
+                        __mode = .none
+                    }
+                } else if str.string == "__gc" {
+                    if case let .function(fn) = value {
+                        __gc = fn
+                    } else {
+                        __gc = nil
+                    }
+                }
+            }
         }
+    }
+
+    public func set(index: LuaValue, value: LuaValue) {
+        self[index] = value
     }
 
     public subscript(index: String) -> LuaValue {
@@ -304,7 +350,34 @@ public class LuaTable: Hashable {
             } else {
                 hash[MaybeWeakValue(strongly: .string(.string(index)))] = nil
             }
+            if index == "__mode" {
+                if case let .string(val) = value {
+                    if val.string.contains("k") {
+                        if val.string.contains("v") {
+                            __mode = .keyValue
+                        } else {
+                            __mode = .key
+                        }
+                    } else if val.string.contains("v") {
+                        __mode = .value
+                    } else {
+                        __mode = .none
+                    }
+                } else {
+                    __mode = .none
+                }
+            } else if index == "__gc" {
+                if case let .function(fn) = value {
+                    __gc = fn
+                } else {
+                    __gc = nil
+                }
+            }
         }
+    }
+
+    public func set(index: String, value: LuaValue) {
+        self[index] = value
     }
 
     public subscript(index: Int) -> LuaValue {
@@ -323,5 +396,25 @@ public class LuaTable: Hashable {
                 hash[MaybeWeakValue(strongly: .number(Double(index)))] = nil
             }
         }
+    }
+
+    public func set(index: Int, value: LuaValue) {
+        self[index] = value
+    }
+
+    public func trySet(index: LuaValue, value: LuaValue) -> Bool {
+        if self[index] != .nil {
+            self[index] = value
+            return true
+        }
+        return false
+    }
+
+    public func isolated<T>(_ closure: (isolated LuaTable) async throws -> T) async rethrows -> T {
+        return try await closure(self)
+    }
+
+    public func isolated(_ closure: (isolated LuaTable) async throws -> Void) async rethrows {
+        return try await closure(self)
     }
 }

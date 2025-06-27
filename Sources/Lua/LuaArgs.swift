@@ -11,9 +11,9 @@ public struct LuaArgs {
         self.state = state
     }
 
-    private func argumentError(at index: Int, for val: LuaValue, expected type: String) -> Lua.LuaError {
+    private func argumentError(at index: Int, for val: LuaValue, expected type: String) async -> Lua.LuaError {
         if let state = state {
-            return state.argumentError(at: index, for: val, expected: type)
+            return await state.argumentError(at: index, for: val, expected: type)
         }
         return Lua.argumentError(at: index, for: val, expected: type)
     }
@@ -63,7 +63,7 @@ public struct LuaArgs {
         return args[...(index.upperBound - 1)]
     }
 
-    public func checkBoolean(at index: Int, default defaultValue: Bool? = nil) throws -> Bool {
+    public func checkBoolean(at index: Int, default defaultValue: Bool? = nil) async throws -> Bool {
         var val = LuaValue.nil
         if index <= args.count {
             val = args[index-1]
@@ -74,10 +74,10 @@ public struct LuaArgs {
         if case let .boolean(val) = val {
             return val
         }
-        throw argumentError(at: index, for: val, expected: "boolean")
+        throw await argumentError(at: index, for: val, expected: "boolean")
     }
 
-    public func checkNumber(at index: Int, default defaultValue: Double? = nil) throws -> Double {
+    public func checkNumber(at index: Int, default defaultValue: Double? = nil) async throws -> Double {
         var val = LuaValue.nil
         if index <= args.count {
             val = args[index-1]
@@ -88,10 +88,10 @@ public struct LuaArgs {
         if case let .number(val) = val {
             return val
         }
-        throw argumentError(at: index, for: val, expected: "number")
+        throw await argumentError(at: index, for: val, expected: "number")
     }
 
-    public func checkInt(at index: Int, default defaultValue: Int? = nil) throws -> Int {
+    public func checkInt(at index: Int, default defaultValue: Int? = nil) async throws -> Int {
         var val = LuaValue.nil
         if index <= args.count {
             val = args[index-1]
@@ -102,10 +102,10 @@ public struct LuaArgs {
         if case let .number(val) = val {
             return Int(val)
         }
-        throw argumentError(at: index, for: val, expected: "number")
+        throw await argumentError(at: index, for: val, expected: "number")
     }
 
-    public func checkString(at index: Int, default defaultValue: String? = nil) throws -> String {
+    public func checkString(at index: Int, default defaultValue: String? = nil) async throws -> String {
         var val = LuaValue.nil
         if index <= args.count {
             val = args[index-1]
@@ -116,10 +116,10 @@ public struct LuaArgs {
         if case let .string(val) = val {
             return val.string
         }
-        throw argumentError(at: index, for: val, expected: "string")
+        throw await argumentError(at: index, for: val, expected: "string")
     }
 
-    public func checkBytes(at index: Int, default defaultValue: [UInt8]? = nil) throws -> [UInt8] {
+    public func checkBytes(at index: Int, default defaultValue: [UInt8]? = nil) async throws -> [UInt8] {
         var val = LuaValue.nil
         if index <= args.count {
             val = args[index-1]
@@ -130,10 +130,10 @@ public struct LuaArgs {
         if case let .string(val) = val {
             return val.bytes
         }
-        throw argumentError(at: index, for: val, expected: "string")
+        throw await argumentError(at: index, for: val, expected: "string")
     }
 
-    public func checkTable(at index: Int, default defaultValue: LuaTable? = nil) throws -> LuaTable {
+    public func checkTable(at index: Int, default defaultValue: LuaTable? = nil) async throws -> LuaTable {
         var val = LuaValue.nil
         if index <= args.count {
             val = args[index-1]
@@ -144,10 +144,10 @@ public struct LuaArgs {
         if case let .table(val) = val {
             return val
         }
-        throw argumentError(at: index, for: val, expected: "table")
+        throw await argumentError(at: index, for: val, expected: "table")
     }
 
-    public func checkFunction(at index: Int, default defaultValue: LuaFunction? = nil) throws -> LuaFunction {
+    public func checkFunction(at index: Int, default defaultValue: LuaFunction? = nil) async throws -> LuaFunction {
         var val = LuaValue.nil
         if index <= args.count {
             val = args[index-1]
@@ -158,10 +158,10 @@ public struct LuaArgs {
         if case let .function(val) = val {
             return val
         }
-        throw argumentError(at: index, for: val, expected: "function")
+        throw await argumentError(at: index, for: val, expected: "function")
     }
 
-    public func checkThread(at index: Int, default defaultValue: LuaThread? = nil) throws -> LuaThread {
+    public func checkThread(at index: Int, default defaultValue: LuaThread? = nil) async throws -> LuaThread {
         var val = LuaValue.nil
         if index <= args.count {
             val = args[index-1]
@@ -172,10 +172,10 @@ public struct LuaArgs {
         if case let .thread(val) = val {
             return val
         }
-        throw argumentError(at: index, for: val, expected: "thread")
+        throw await argumentError(at: index, for: val, expected: "thread")
     }
 
-    public func checkUserdata(at index: Int, default defaultValue: LuaUserdata? = nil) throws -> LuaUserdata {
+    public func checkUserdata(at index: Int, default defaultValue: LuaUserdata? = nil) async throws -> LuaUserdata {
         var val = LuaValue.nil
         if index <= args.count {
             val = args[index-1]
@@ -186,10 +186,10 @@ public struct LuaArgs {
         if case let .userdata(val) = val {
             return val
         }
-        throw argumentError(at: index, for: val, expected: "userdata")
+        throw await argumentError(at: index, for: val, expected: "userdata")
     }
 
-    public func checkUserdata<T>(at index: Int, as type: T.Type, default defaultValue: T? = nil) throws -> T {
+    public func checkUserdata<T>(at index: Int, as type: T.Type, default defaultValue: T? = nil) async throws -> T {
         var val = LuaValue.nil
         if index <= args.count {
             val = args[index-1]
@@ -200,6 +200,6 @@ public struct LuaArgs {
         if case let .userdata(val) = val, let v = val.object as? T {
             return v
         }
-        throw argumentError(at: index, for: val, expected: String(reflecting: T.self))
+        throw await argumentError(at: index, for: val, expected: String(reflecting: T.self))
     }
 }

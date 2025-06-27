@@ -1,5 +1,5 @@
-public enum LuaOpcode: Equatable {
-    public enum Operation: UInt8 {
+public enum LuaOpcode: Equatable, Sendable {
+    public enum Operation: UInt8, Sendable {
         case MOVE = 0
         case LOADK = 1
         case LOADKX = 2

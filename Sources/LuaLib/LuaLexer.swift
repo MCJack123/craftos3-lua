@@ -158,7 +158,7 @@ internal struct LuaLexer {
     private let reader: () async throws -> [UInt8]?
     private var final = false
 
-    private mutating func tokenize(_ text: [UInt8]) throws {
+    private mutating func tokenize(_ text: [UInt8]) async throws {
         let text = pending + text
         var start = 0
         pending = ""
@@ -178,7 +178,7 @@ internal struct LuaLexer {
                     if case let .number(e_) = m[1] {e = e_}
                     if v == "dquote" || v == "squote" {
                         var ok = true
-                        while (try StringMatch.match(in: (try StringMatch.gsub(in: s, replace: "\\.", with: "")).0, for: LuaLexer.classes[v]!)).isEmpty {
+                        while (try StringMatch.match(in: (try await StringMatch.gsub(in: s, replace: "\\.", with: "")).0, for: LuaLexer.classes[v]!)).isEmpty {
                             let m2 = try StringMatch.match(in: text, for: LuaLexer.classes[v]!, from: Int(e) - 2)
                             if m2.isEmpty {
                                 ok = false
@@ -356,19 +356,19 @@ internal struct LuaLexer {
 
     internal mutating func next() async throws -> Token? {
         if final {
-            try tokenize("")
+            try await tokenize("")
             //print(self.current)
             return self.current
         }
-        try tokenize("")
+        try await tokenize("")
         while self.current == nil {
             if let data = try await reader() {
                 //print(data, pending)
-                try tokenize(data)
+                try await tokenize(data)
             } else {
                 final = true
                 //print("final", pending)
-                try tokenize(" ")
+                try await tokenize(" ")
                 //print(self.current)
                 return self.current
             }

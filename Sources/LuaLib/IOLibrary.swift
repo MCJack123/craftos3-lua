@@ -7,9 +7,9 @@ typealias FileDescriptor = UnsafeMutablePointer<FILE>
 internal class FileObject {
     fileprivate let handle: FileDescriptor?
 
-    fileprivate func read(mode: LuaValue, state: Lua) throws -> LuaValue {
+    fileprivate func read(mode: LuaValue, state: Lua) async throws -> LuaValue {
         guard let handle = handle else {
-            throw Lua.error(in: state, message: "attempt to use a closed file")
+            throw await Lua.error(in: state, message: "attempt to use a closed file")
         }
         if feof(handle) != 0 {
             return .nil
@@ -67,61 +67,61 @@ internal class FileObject {
         }
     }
 
-    public func close(_ state: Lua) throws {
+    public func close(_ state: Lua) async throws {
         guard let handle = handle else {
-            throw Lua.error(in: state, message: "attempt to use a closed file")
+            throw await Lua.error(in: state, message: "attempt to use a closed file")
         }
         fclose(handle)
     }
 
-    public func flush(_ state: Lua) throws {
+    public func flush(_ state: Lua) async throws {
         guard let handle = handle else {
-            throw Lua.error(in: state, message: "attempt to use a closed file")
+            throw await Lua.error(in: state, message: "attempt to use a closed file")
         }
         fflush(handle)
     }
 
-    public func lines(_ state: Lua, _ args: LuaArgs) -> LuaValue {
+    public func lines(_ state: Lua, _ args: LuaArgs) async -> LuaValue {
         return .function(.swift(LuaSwiftFunction {_state, _args in
             if args.count == 0 {
-                return [try self.read(mode: .string(.string("l")), state: _state)]
+                return [try await self.read(mode: .string(.string("l")), state: _state)]
             }
             var retval = [LuaValue]()
             for i in 1...args.count {
-                retval.append(try self.read(mode: args[i], state: _state))
+                retval.append(try await self.read(mode: args[i], state: _state))
             }
             return retval
         }))
     }
 
-    public func read(_ state: Lua, _ args: LuaArgs) throws -> [LuaValue] {
+    public func read(_ state: Lua, _ args: LuaArgs) async throws -> [LuaValue] {
         if args.count == 0 {
-            return [try self.read(mode: .string(.string("l")), state: state)]
+            return [try await self.read(mode: .string(.string("l")), state: state)]
         }
         var retval = [LuaValue]()
         for i in 1...args.count {
-            retval.append(try self.read(mode: args[i], state: state))
+            retval.append(try await self.read(mode: args[i], state: state))
         }
         return retval
     }
 
-    public func setvbuf(_ state: Lua, mode: String, size: Int?) throws {
+    public func setvbuf(_ state: Lua, mode: String, size: Int?) async throws {
         guard let handle = handle else {
-            throw Lua.error(in: state, message: "attempt to use a closed file")
+            throw await Lua.error(in: state, message: "attempt to use a closed file")
         }
         let cmode: CInt
         switch mode {
             case "no": cmode = _IONBF
             case "full": cmode = _IOFBF
             case "line": cmode = _IOLBF
-            default: throw Lua.error(in: state, message: "bad argument #1 (invalid option '\(mode)')")
+            default: throw await Lua.error(in: state, message: "bad argument #1 (invalid option '\(mode)')")
         }
         LibC.setvbuf(handle, nil, cmode, size ?? Int(BUFSIZ))
     }
 
-    public func seek(_ state: Lua, whence: String?, offset: Int?) throws -> Int {
+    public func seek(_ state: Lua, whence: String?, offset: Int?) async throws -> Int {
         guard let handle = handle else {
-            throw Lua.error(in: state, message: "attempt to use a closed file")
+            throw await Lua.error(in: state, message: "attempt to use a closed file")
         }
         let whence = whence ?? "cur"
         let offset = offset ?? 0
@@ -130,21 +130,21 @@ internal class FileObject {
             case "cur": cwhence = SEEK_CUR
             case "set": cwhence = SEEK_SET
             case "end": cwhence = SEEK_END
-            default: throw Lua.error(in: state, message: "bad argument #1 (invalid option '\(whence)')")
+            default: throw await Lua.error(in: state, message: "bad argument #1 (invalid option '\(whence)')")
         }
         fseek(handle, offset, cwhence) // TODO: error check
         return ftell(handle)
     }
 
-    public func write(_ state: Lua, _ args: LuaArgs) throws -> [LuaValue] {
+    public func write(_ state: Lua, _ args: LuaArgs) async throws -> [LuaValue] {
         guard let handle = handle else {
-            throw Lua.error(in: state, message: "attempt to use a closed file")
+            throw await Lua.error(in: state, message: "attempt to use a closed file")
         }
         if args.count == 0 {
             return [.object(self)]
         }
         for i in 1...args.count {
-            let str = args[i].toString
+            let str = await args[i].toString
             if fwrite(str, str.count, 1, handle) < str.count {
                 return [.nil, .string(.string(String(cString: strerror(errno_()))))]
             }
@@ -166,36 +166,36 @@ internal class IOLibrary {
     private var inputHandle = stdin
     private var outputHandle = stdout
 
-    public func close(_ state: Lua, file: LuaValue?) throws {
+    public func close(_ state: Lua, file: LuaValue?) async throws {
         if let file = file {
             let handle = try file.checkUserdata(at: 1, as: FileObject.self)
             guard let handle = handle.handle else {
-                throw Lua.error(in: state, message: "attempt to use a closed file")
+                throw await Lua.error(in: state, message: "attempt to use a closed file")
             }
             fclose(handle)
         } else {
             guard let handle = outputHandle.handle else {
-                throw Lua.error(in: state, message: "attempt to use a closed file")
+                throw await Lua.error(in: state, message: "attempt to use a closed file")
             }
             fclose(handle)
         }
     }
 
-    public func flush(_ state: Lua) throws {
+    public func flush(_ state: Lua) async throws {
         guard let handle = outputHandle.handle else {
-            throw Lua.error(in: state, message: "attempt to use a closed file")
+            throw await Lua.error(in: state, message: "attempt to use a closed file")
         }
         fflush(handle)
     }
 
-    public func input(_ state: Lua, file: LuaValue?) throws -> LuaValue {
+    public func input(_ state: Lua, file: LuaValue?) async throws -> LuaValue {
         if let file = file {
             var handle: FileObject!
             if case let .string(path) = file {
                 if let h = fopen(path.string, "r") {
                     handle = FileObject(h)
                 } else {
-                    throw Lua.error(in: state, message: String(cString: strerror(errno_())))
+                    throw await Lua.error(in: state, message: String(cString: strerror(errno_())))
                 }
             } else {
                 handle = try file.checkUserdata(at: 1, as: FileObject.self)
@@ -205,39 +205,39 @@ internal class IOLibrary {
         return .object(inputHandle)
     }
 
-    public func lines(_ state: Lua, args: LuaArgs) throws -> LuaValue {
+    public func lines(_ state: Lua, args: LuaArgs) async throws -> LuaValue {
         if args.count == 0 {
-            return inputHandle.lines(state, LuaArgs([], state: state))
+            return await inputHandle.lines(state, LuaArgs([], state: state))
         }
-        if let fp = fopen(try args.checkString(at: 1), "r") {
+        if let fp = fopen(try await args.checkString(at: 1), "r") {
             let handle = FileObject(fp)
             return .function(.swift(LuaSwiftFunction {_state, _args in
                 if handle.handle == nil {
                     return []
                 }
                 if args.count == 0 {
-                    let v = try handle.read(mode: .string(.string("l")), state: _state)
+                    let v = try await handle.read(mode: .string(.string("l")), state: _state)
                     if v == .nil {
-                        try handle.close(_state)
+                        try await handle.close(_state)
                     }
                     return [v]
                 }
                 var retval = [LuaValue]()
                 var close = false
                 for i in 1...args.count {
-                    let v = try handle.read(mode: args[i], state: _state)
+                    let v = try await handle.read(mode: args[i], state: _state)
                     if v == .nil {
                         close = true
                     }
                     retval.append(v)
                 }
                 if close {
-                    try handle.close(_state)
+                    try await handle.close(_state)
                 }
                 return retval
             }))
         } else {
-            throw Lua.error(in: state, message: String(cString: strerror(errno_())))
+            throw await Lua.error(in: state, message: String(cString: strerror(errno_())))
         }
     }
 
@@ -249,15 +249,23 @@ internal class IOLibrary {
         }
     }
 
-    public func output(_ state: Lua, file: LuaValue?) throws -> LuaValue {
+    public func output(_ state: Lua, file: LuaValue?) async throws -> LuaValue {
         if let file = file {
             var handle: FileObject!
             if case let .string(path) = file {
-                try path.string.withCString {_path in
-                    if let h = fopen(_path, "w") {
-                        handle = FileObject(h)
+                do {
+                    try path.string.withCString {_path in
+                        if let h = fopen(_path, "w") {
+                            handle = FileObject(h)
+                        } else {
+                            throw Lua.LuaError.runtimeError(message: String(cString: strerror(errno_())))
+                        }
+                    }
+                } catch let error as Lua.LuaError {
+                    if case let .runtimeError(str) = error {
+                        throw await Lua.error(in: state, message: str)
                     } else {
-                        throw Lua.error(in: state, message: String(cString: strerror(errno_())))
+                        throw error
                     }
                 }
             } else {
@@ -280,8 +288,8 @@ internal class IOLibrary {
         #endif
     }
 
-    public func read(_ state: Lua, _ args: LuaArgs) throws -> [LuaValue] {
-        return try inputHandle.read(state, args)
+    public func read(_ state: Lua, _ args: LuaArgs) async throws -> [LuaValue] {
+        return try await inputHandle.read(state, args)
     }
 
     public func tmpfile() -> LuaValue {
@@ -301,7 +309,7 @@ internal class IOLibrary {
         }
     }
 
-    public func write(_ state: Lua, _ args: LuaArgs) throws -> [LuaValue] {
-        return try outputHandle.write(state, args)
+    public func write(_ state: Lua, _ args: LuaArgs) async throws -> [LuaValue] {
+        return try await outputHandle.write(state, args)
     }
 }

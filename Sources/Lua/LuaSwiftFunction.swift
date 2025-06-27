@@ -1,7 +1,7 @@
-public class LuaSwiftFunction: Hashable {
-    internal let body: (Lua, LuaArgs) async throws -> [LuaValue]
+public final class LuaSwiftFunction: Hashable, Sendable {
+    internal let body: @Sendable (Lua, LuaArgs) async throws -> [LuaValue]
 
-    public init(from fn: @escaping (Lua, LuaArgs) async throws -> [LuaValue]) {
+    public init(from fn: @escaping @Sendable (Lua, LuaArgs) async throws -> [LuaValue]) {
         body = fn
     }
 

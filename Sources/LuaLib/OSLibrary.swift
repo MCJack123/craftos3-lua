@@ -14,7 +14,7 @@ internal class OSLibrary: LuaLibrary {
     // }
 
     public let difftime = LuaSwiftFunction {state, args in
-        return [.number(Double(Foundation.difftime(time_t(try args.checkInt(at: 1)), time_t(try args.checkInt(at: 2)))))]
+        return [.number(Double(Foundation.difftime(time_t(try await args.checkInt(at: 1)), time_t(try await args.checkInt(at: 2)))))]
     }
 
     public let execute = LuaSwiftFunction {state, args in
@@ -30,7 +30,7 @@ internal class OSLibrary: LuaLibrary {
         if args.count == 0 {
             return [.boolean(shellPath != nil)]
         }
-        arguments.append(try args.checkString(at: 1))
+        arguments.append(try await args.checkString(at: 1))
         if let shellPath = shellPath {
             let process = try Process.run(URL(fileURLWithPath: shellPath), arguments: arguments)
             process.waitUntilExit()
@@ -53,19 +53,19 @@ internal class OSLibrary: LuaLibrary {
             case .nil: Foundation.exit(0)
             case .boolean(let b): Foundation.exit(b ? 1 : 0)
             case .number(let n): Foundation.exit(Int32(n))
-            default: throw state.argumentError(at: 1, for: args[1], expected: "boolean or number")
+            default: throw await state.argumentError(at: 1, for: args[1], expected: "boolean or number")
         }
     }
 
     public let getenv = LuaSwiftFunction {state, args in
-        return try args.checkString(at: 1).withCString {_str in
+        return try await args.checkString(at: 1).withCString {_str in
             return [.string(.string(String(cString: Foundation.getenv(_str))))]
         }
     }
 
     public let remove = LuaSwiftFunction {state, args in
         do {
-            try FileManager.default.removeItem(atPath: try args.checkString(at: 1))
+            try FileManager.default.removeItem(atPath: try await args.checkString(at: 1))
         } catch let error as CocoaError {
             return [.nil, .string(.string(error.localizedDescription)), .number(Double(error.errorCode))]
         } catch let error {
@@ -76,7 +76,7 @@ internal class OSLibrary: LuaLibrary {
 
     public let rename = LuaSwiftFunction {state, args in
         do {
-            try FileManager.default.moveItem(atPath: try args.checkString(at: 1), toPath: try args.checkString(at: 2))
+            try FileManager.default.moveItem(atPath: try await args.checkString(at: 1), toPath: try await args.checkString(at: 2))
         } catch let error as CocoaError {
             return [.nil, .string(.string(error.localizedDescription)), .number(Double(error.errorCode))]
         } catch let error {
@@ -86,9 +86,9 @@ internal class OSLibrary: LuaLibrary {
     }
 
     public var setlocale = LuaSwiftFunction.empty
-    private func _setlocale(_ state: Lua, _ args: LuaArgs) async throws -> [LuaValue] {
-        let locnam = try args.checkString(at: 1, default: "")
-        let category = try args.checkString(at: 2, default: "all")
+    @Sendable private func _setlocale(_ state: Lua, _ args: LuaArgs) async throws -> [LuaValue] {
+        let locnam = try await args.checkString(at: 1, default: "")
+        let category = try await args.checkString(at: 2, default: "all")
         if category == "all" {
             if args[1] == .nil {
                 return [.string(.string(locale.identifier))]
@@ -123,7 +123,7 @@ internal class OSLibrary: LuaLibrary {
                 case "time":
                     // ?
                     break
-                default: throw Lua.error(in: state, message: "bad argument #2 (invalid category)")
+                default: throw await Lua.error(in: state, message: "bad argument #2 (invalid category)")
             }
             return []
         }*/
@@ -134,23 +134,23 @@ internal class OSLibrary: LuaLibrary {
 
     public let time = LuaSwiftFunction {state, args in
         if case let .table(t) = args[1] {
-            guard case let .number(year) = t["year"] else {
-                throw Lua.error(in: state, message: "bad argument #1 (bad field 'year')")
+            guard case let .number(year) = await t["year"] else {
+                throw await Lua.error(in: state, message: "bad argument #1 (bad field 'year')")
             }
-            guard case let .number(month) = t["month"] else {
-                throw Lua.error(in: state, message: "bad argument #1 (bad field 'month')")
+            guard case let .number(month) = await t["month"] else {
+                throw await Lua.error(in: state, message: "bad argument #1 (bad field 'month')")
             }
-            guard case let .number(day) = t["day"] else {
-                throw Lua.error(in: state, message: "bad argument #1 (bad field 'day')")
+            guard case let .number(day) = await t["day"] else {
+                throw await Lua.error(in: state, message: "bad argument #1 (bad field 'day')")
             }
-            guard case let .number(hour) = t["hour"].orElse(.number(12)) else {
-                throw Lua.error(in: state, message: "bad argument #1 (bad field 'hour')")
+            guard case let .number(hour) = await t["hour"].orElse(.number(12)) else {
+                throw await Lua.error(in: state, message: "bad argument #1 (bad field 'hour')")
             }
-            guard case let .number(min) = t["min"].orElse(.number(0)) else {
-                throw Lua.error(in: state, message: "bad argument #1 (bad field 'min')")
+            guard case let .number(min) = await t["min"].orElse(.number(0)) else {
+                throw await Lua.error(in: state, message: "bad argument #1 (bad field 'min')")
             }
-            guard case let .number(sec) = t["sec"].orElse(.number(0)) else {
-                throw Lua.error(in: state, message: "bad argument #1 (bad field 'sec')")
+            guard case let .number(sec) = await t["sec"].orElse(.number(0)) else {
+                throw await Lua.error(in: state, message: "bad argument #1 (bad field 'sec')")
             }
             var date = DateComponents()
             date.year = Int(year)

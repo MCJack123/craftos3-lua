@@ -19,7 +19,7 @@ public extension String {
     }
 }
 
-extension Array: ExpressibleByExtendedGraphemeClusterLiteral, ExpressibleByUnicodeScalarLiteral, ExpressibleByStringLiteral, ExpressibleByStringInterpolation where Element == UInt8 {
+extension Array: @retroactive ExpressibleByExtendedGraphemeClusterLiteral, @retroactive ExpressibleByUnicodeScalarLiteral, @retroactive ExpressibleByStringLiteral, @retroactive ExpressibleByStringInterpolation where Element == UInt8 {
     public typealias StringLiteralType = String
 
     public init(stringLiteral: Self.StringLiteralType) {
@@ -43,7 +43,7 @@ public extension Array where Element: Equatable {
     }
 }
 
-extension UInt8: ExpressibleByExtendedGraphemeClusterLiteral, ExpressibleByUnicodeScalarLiteral, ExpressibleByStringLiteral, ExpressibleByStringInterpolation {
+extension UInt8: @retroactive ExpressibleByExtendedGraphemeClusterLiteral, @retroactive ExpressibleByUnicodeScalarLiteral, @retroactive ExpressibleByStringLiteral, @retroactive ExpressibleByStringInterpolation {
     public typealias StringLiteralType = String
 
     public init(stringLiteral: Self.StringLiteralType) {
@@ -51,7 +51,7 @@ extension UInt8: ExpressibleByExtendedGraphemeClusterLiteral, ExpressibleByUnico
     }
 }
 
-public enum LuaString: Hashable, Comparable, CustomStringConvertible {
+public enum LuaString: Hashable, Sendable, Comparable, CustomStringConvertible {
     case string([UInt8])
     case substring(ArraySlice<UInt8>)
     indirect case rope(LuaString, LuaString)

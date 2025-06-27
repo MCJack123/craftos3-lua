@@ -35,10 +35,10 @@ internal struct StringLibrary: LuaLibrary {
     }
 
     public let byte = LuaSwiftFunction {state, args in
-        let str = try args.checkBytes(at: 1)
-        let _start = try args.checkInt(at: 2, default: 1)
+        let str = try await args.checkBytes(at: 1)
+        let _start = try await args.checkInt(at: 2, default: 1)
         guard let start = index(string: str, at: _start) else {return []}
-        let end = index(string: str, at: try args.checkInt(at: 3, default: _start)) ?? str.index(before: str.endIndex)
+        let end = index(string: str, at: try await args.checkInt(at: 3, default: _start)) ?? str.index(before: str.endIndex)
         return str.map {LuaValue.number(Double($0))}
     }
 
@@ -47,9 +47,9 @@ internal struct StringLibrary: LuaLibrary {
     }
 
     public let dump = LuaSwiftFunction {state, args in
-        let function = try args.checkFunction(at: 1)
+        let function = try await args.checkFunction(at: 1)
         switch function {
-            case .swift: throw state.error("unable to dump given function")
+            case .swift: throw await state.error("unable to dump given function")
             case .lua(let fn):
                 let dump = fn.proto.dump()
                 return [.string(.string(dump))]
@@ -59,9 +59,9 @@ internal struct StringLibrary: LuaLibrary {
     private static let magicCharacters = Set<UInt8>((["^", "$", "*", "+", "-", "?", ".", "(", ")", "[", "]", "%"] as [Character]).map {$0.asciiValue!})
 
     public let find = LuaSwiftFunction {state, args in
-        let str = try args.checkBytes(at: 1)
-        let pat = try args.checkBytes(at: 2)
-        let idx = try args.checkInt(at: 3, default: 1)
+        let str = try await args.checkBytes(at: 1)
+        let pat = try await args.checkBytes(at: 2)
+        let idx = try await args.checkInt(at: 3, default: 1)
         if args[4].toBool || !pat.contains(where: {StringLibrary.magicCharacters.contains($0)}) {
             if let range = str.firstRange_(of: pat) {
                 return [
@@ -82,50 +82,71 @@ internal struct StringLibrary: LuaLibrary {
         }
     }
 
+    private actor Incrementor {
+        private var num: Int
+        public init(_ value: Int) {
+            num = value
+        }
+        public func next() -> Int {
+            let n = num
+            num += 1
+            return n
+        }
+    }
+
     public let format = LuaSwiftFunction {state, args in
         // TODO
-        let format = try args.checkBytes(at: 1)
-        var index = 2
+        let format = try await args.checkBytes(at: 1)
+        let index = Incrementor(2)
         let (str, n) = try await StringMatch.gsub(in: format, replace: "%%[sd]", with: .function(.swift(LuaSwiftFunction {_state, _args in
-            let v = args[index]
-            index += 1
+            let v = args[await index.next()]
             return [v]
         })), max: nil, thread: state.thread)
         return [.string(.string(str))]
     }
 
-    public let gmatch = LuaSwiftFunction {state, args in
-        var ms = StringMatch.gmatch(in: try args.checkBytes(at: 1), for: try args.checkBytes(at: 2))
-        return [.function(.swift(LuaSwiftFunction {_, _ in
+    private actor GmatchIsolator {
+        private var ms: StringMatch.gmatch
+        public init(_ value: StringMatch.gmatch) {
+            ms = value
+        }
+        public func next() throws -> [LuaValue] {
             return try ms.next()
+        }
+    }
+
+    public let gmatch = LuaSwiftFunction {state, args in
+        let ms = GmatchIsolator(StringMatch.gmatch(in: try await args.checkBytes(at: 1), for: try await args.checkBytes(at: 2)))
+        return [.function(.swift(LuaSwiftFunction {_, _ in
+            return try await ms.next()
         }))]
     }
 
     public let gsub = LuaSwiftFunction {state, args in
-        let max = args[4] == .nil ? nil : try args.checkInt(at: 4)
+        let max = args[4] == .nil ? nil : try await args.checkInt(at: 4)
         let res = try await StringMatch.gsub(in: args.checkBytes(at: 1), replace: args.checkBytes(at: 2), with: args[3], max: max, thread: state.thread)
         return [.string(.string(res.0)), .number(Double(res.1))]
     }
 
     public let len = LuaSwiftFunction {state, args in
-        return [.number(Double(try args.checkBytes(at: 1).count))]
+        return [.number(Double(try await args.checkBytes(at: 1).count))]
     }
 
     public let lower = LuaSwiftFunction {state, args in
-        return [.string(.string(try args.checkBytes(at: 1).map {UInt8(tolower(CInt($0)))}))]
+        return [.string(.string(try await args.checkBytes(at: 1).map {UInt8(tolower(CInt($0)))}))]
     }
 
     public let match = LuaSwiftFunction {state, args in
-        let str = try args.checkBytes(at: 1)
-        let pat = try args.checkBytes(at: 2)
-        let idx = try args.checkInt(at: 3, default: 1)
+        let str = try await args.checkBytes(at: 1)
+        let pat = try await args.checkBytes(at: 2)
+        let idx = try await args.checkInt(at: 3, default: 1)
         return try StringMatch.match(in: str, for: pat, from: idx)
     }
 
     public let rep = LuaSwiftFunction {state, args in
-        let val = try args.checkBytes(at: 1)
-        let count = try args.checkInt(at: 2)
-        let sep = try args.checkBytes(at: 3, default: "")
+        let val = try await args.checkBytes(at: 1)
+        let count = try await args.checkInt(at: 2)
+        let sep = try await args.checkBytes(at: 3, default: "")
         var retval = val
         if count <= 0 {
             return [.string(.string(""))]
@@ -139,18 +160,18 @@ internal struct StringLibrary: LuaLibrary {
     }
 
     public let reverse = LuaSwiftFunction {state, args in
-        return [.string(.string([UInt8](try args.checkBytes(at: 1).reversed())))]
+        return [.string(.string([UInt8](try await args.checkBytes(at: 1).reversed())))]
     }
 
     public let sub = LuaSwiftFunction {state, args in
-        let s = try args.checkBytes(at: 1)
-        guard let i = index(string: s, at: try args.checkInt(at: 2)) else {return [.string(.string(""))]}
-        let j = index(string: s, at: try args.checkInt(at: 3, default: -1)) ?? s.index(before: s.endIndex)
+        let s = try await args.checkBytes(at: 1)
+        guard let i = index(string: s, at: try await args.checkInt(at: 2)) else {return [.string(.string(""))]}
+        let j = index(string: s, at: try await args.checkInt(at: 3, default: -1)) ?? s.index(before: s.endIndex)
         if j < i {return [.string(.string(""))]}
         return [.string(.substring(s[i...j]))]
     }
 
     public let upper = LuaSwiftFunction {state, args in
-        return [.string(.string(try args.checkBytes(at: 1).map {UInt8(toupper(CInt($0)))}))]
+        return [.string(.string(try await args.checkBytes(at: 1).map {UInt8(toupper(CInt($0)))}))]
     }
 }

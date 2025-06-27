@@ -4,11 +4,11 @@ internal struct CoroutineLibrary: LuaLibrary {
     public let name = "coroutine"
 
     public let create = LuaSwiftFunction {state, args in
-        return [.thread(await LuaThread(in: state, for: try args.checkFunction(at: 1)))]
+        return [.thread(await LuaThread(in: state, for: try await args.checkFunction(at: 1)))]
     }
 
     public let resume = LuaSwiftFunction {state, args in
-        let th = try args.checkThread(at: 1)
+        let th = try await args.checkThread(at: 1)
         do {
             var res = try await th.resume(in: state, with: [LuaValue](args[2...]))
             res.insert(.boolean(true), at: 0)
@@ -26,7 +26,7 @@ internal struct CoroutineLibrary: LuaLibrary {
                 case .noCoroutine:
                     return [.boolean(false), .string(.string("no coroutine"))] // this should never happen
                 case .notSuspended:
-                    return [.boolean(false), .string(.string("cannot resume a \(String(describing: th.state)) coroutine"))]
+                    return [.boolean(false), .string(.string("cannot resume a \(String(describing: await th.state)) coroutine"))]
             }
         } catch {
             return [.boolean(false), .string(.string(String(describing: error)))]
@@ -34,15 +34,15 @@ internal struct CoroutineLibrary: LuaLibrary {
     }
 
     public let running = LuaSwiftFunction {state, args in
-        return [.thread(state.thread), .boolean(state.thread.state == .dead)]
+        return [.thread(state.thread), .boolean(await state.thread.state == .dead)]
     }
 
     public let status = LuaSwiftFunction {state, args in
-        return [.string(.string(String(describing: try args.checkThread(at: 1).state)))]
+        return [.string(.string(String(describing: try await args.checkThread(at: 1).state)))]
     }
 
     public let wrap = LuaSwiftFunction {state, args in
-        let coro = await LuaThread(in: state, for: try args.checkFunction(at: 1))
+        let coro = await LuaThread(in: state, for: try await args.checkFunction(at: 1))
         return [.function(.swift(LuaSwiftFunction {_state, _args in
             return try await coro.resume(in: _state, with: _args.args)
         }))]

@@ -1,4 +1,4 @@
-// swift-tools-version: 5.9
+// swift-tools-version: 5.10
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
 import PackageDescription
@@ -27,17 +27,28 @@ let package = Package(
     ],
     dependencies: [
         .package(name: "LibC", path: "Packages/LibC"),
-        .package(url: "https://github.com/apple/swift-syntax.git", from: "509.0.0"),
+        .package(url: "https://github.com/apple/swift-syntax.git", from: "601.0.0"),
     ],
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
         // Targets can depend on other targets in this package and products from dependencies.
         .target(
             name: "Lua",
-            dependencies: ["LibC", "LuaMacros"]),
+            dependencies: ["LibC", "LuaMacros"],
+            swiftSettings: [
+                .enableUpcomingFeature("DisableOutwardActorInterference"),
+                .enableUpcomingFeature("GlobalConcurrency"),
+                .enableUpcomingFeature("InferSendablesFromCaptures"),
+                .enableExperimentalFeature("StrictConcurrency")
+            ]),
         .target(
             name: "LuaLib",
-            dependencies: ["Lua", "LibC"]),
+            dependencies: ["Lua", "LibC"],
+            swiftSettings: [
+                .enableUpcomingFeature("DisableOutwardActorInterference"),
+                .enableUpcomingFeature("GlobalConcurrency"),
+                .enableUpcomingFeature("InferSendablesFromCaptures")
+            ]),
         .executableTarget(
             name: "LuaC",
             dependencies: ["Lua", "LuaLib"]),
@@ -51,6 +62,12 @@ let package = Package(
                 .product(name: "SwiftSyntaxMacros", package: "swift-syntax"),
                 .product(name: "SwiftCompilerPlugin", package: "swift-syntax"),
                 .product(name: "SwiftDiagnostics", package: "swift-syntax"),
+            ],
+            swiftSettings: [
+                .enableUpcomingFeature("DisableOutwardActorInterference"),
+                .enableUpcomingFeature("GlobalConcurrency"),
+                .enableUpcomingFeature("InferSendablesFromCaptures"),
+                .enableExperimentalFeature("StrictConcurrency")
             ]),
     ]
 )

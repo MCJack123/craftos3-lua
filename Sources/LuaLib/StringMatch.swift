@@ -490,9 +490,9 @@ internal class StringMatch {
                         }
                         res = (try await f.call(in: thread, with: ms.push_captures(src, e))).first ?? .nil
                     case .table(let t):
-                        res = t[try ms.push_onecapture(0, src, e)]
+                        res = await t[try ms.push_onecapture(0, src, e)]
                     default:
-                        let rstr = rep.toBytes
+                        let rstr = await rep.toBytes
                         var resstr = [UInt8]()
                         var i = StringPointer(rstr)
                         while i.index < rstr.endIndex {
@@ -506,7 +506,7 @@ internal class StringMatch {
                                     } else if c == "0" {
                                         resstr.append(contentsOf: str[src.index..<e.index])
                                     } else {
-                                        resstr.append(contentsOf: try ms.push_onecapture(c.wholeNumberValue! - 1, src, e).toBytes)
+                                        resstr.append(contentsOf: try await ms.push_onecapture(c.wholeNumberValue! - 1, src, e).toBytes)
                                     }
                                 } else {
                                     throw Lua.LuaError.runtimeError(message: "incomplete replacement string")
@@ -519,7 +519,7 @@ internal class StringMatch {
                 if res == .nil || res == .boolean(false) {
                     retval.append(contentsOf: str[src.index..<e.index])
                 } else {
-                    retval.append(contentsOf: res.toBytes)
+                    retval.append(contentsOf: await res.toBytes)
                 }
             }
             if let e = e, e > src {
@@ -537,7 +537,7 @@ internal class StringMatch {
         return (retval, n)
     }
 
-    internal static func gsub(in str: [UInt8], replace p: [UInt8], with rstr: [UInt8], max: Int? = nil) throws -> ([UInt8], Int) {
+    internal static func gsub(in str: [UInt8], replace p: [UInt8], with rstr: [UInt8], max: Int? = nil) async throws -> ([UInt8], Int) {
         var p = p
         let anchor = p.first == ("^" as Character).asciiValue!
         if anchor {
@@ -566,7 +566,7 @@ internal class StringMatch {
                             } else if c == "0" {
                                 resstr.append(contentsOf: str[src.index..<e.index])
                             } else {
-                                resstr.append(contentsOf: try ms.push_onecapture(c.wholeNumberValue! - 1, src, e).toBytes)
+                                resstr.append(contentsOf: try await ms.push_onecapture(c.wholeNumberValue! - 1, src, e).toBytes)
                             }
                         } else {
                             throw Lua.LuaError.runtimeError(message: "incomplete replacement string")

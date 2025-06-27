@@ -52,7 +52,7 @@ public struct LuaLibraryMacro: ExtensionMacro {
                 if fn.signature.effectSpecifiers?.asyncSpecifier != nil {
                     call = "await " + call
                 }
-                if fn.signature.effectSpecifiers?.throwsSpecifier != nil {
+                if fn.signature.effectSpecifiers?.throwsClause?.throwsSpecifier != nil {
                     call = "try " + call
                 }
                 call += ")"
@@ -103,7 +103,7 @@ public struct LuaLibraryMacro: ExtensionMacro {
                 if fn.signature.effectSpecifiers?.asyncSpecifier != nil {
                     call = "await " + call
                 }
-                if fn.signature.effectSpecifiers?.throwsSpecifier != nil {
+                if fn.signature.effectSpecifiers?.throwsClause?.throwsSpecifier != nil {
                     call = "try " + call
                 }
                 call += ")"
