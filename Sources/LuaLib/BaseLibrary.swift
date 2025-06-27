@@ -81,13 +81,16 @@ internal struct BaseLibrary: LuaLibrary {
 
     public let assert = LuaSwiftFunction {state, args in
         if !args[1].toBool {
-            let msg = args[2].orElse(.string(.string("assertion failed!")))
+            var msg = args[2].orElse(.string(.string("assertion failed!")))
+            if case let .table(debug) = await state.global(named: "debug"), case let .function(traceback) = await debug["traceback"] {
+                msg = try await traceback.call(in: state.thread, with: [msg])[0]
+            }
             if case let .string(s) = msg {
                 throw await Lua.error(in: state, message: s.string)
             }
             throw Lua.LuaError.luaError(message: msg)
         }
-        return [args[1]]
+        return args.args
     }
 
     public let error = LuaSwiftFunction {state, args in
@@ -108,6 +111,8 @@ internal struct BaseLibrary: LuaLibrary {
             } else {
                 return [.nil]
             }
+        } else if let mt = await args[1].metatable(in: state) {
+            return [.table(mt)]
         }
         return [.nil]
     }
@@ -260,6 +265,9 @@ internal struct BaseLibrary: LuaLibrary {
             return [.number(Double(args.count - 1))]
         }
         let idx = Int(try await args.checkNumber(at: 1)) + 1
+        if idx <= 0 {
+            return [LuaValue](args[(args.count+idx)...])
+        }
         return [LuaValue](args[idx...])
     }
 

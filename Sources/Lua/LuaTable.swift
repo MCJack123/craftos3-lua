@@ -272,13 +272,13 @@ public actor LuaTable: Hashable {
             }
         } else if case var .number(n) = key, Int(exactly: n) != nil && n > 0 && Int(n) <= array.count {
             while true {
-                if Int(n) + 1 == array.count {
+                if Int(n) == array.count {
                     if hash.isEmpty {
                         return .nil
                     } else {
                         return hash[hash.startIndex].key.value
                     }
-                } else if array[Int(n) + 1].value != .nil {
+                } else if array[Int(n)].value != .nil {
                     return .number(n + 1)
                 }
                 n += 1

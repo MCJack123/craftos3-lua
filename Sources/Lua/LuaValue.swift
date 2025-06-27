@@ -129,6 +129,9 @@ public enum LuaValue: Hashable, Sendable {
             default: break
         }
         if let mt = await metatable(in: state.luaState)?[.Constants.__index] {
+            if mt == self {
+                throw await Lua.error(in: state, message: "loop in gettable")
+            }
             switch mt {
                 case .table: return try await mt.index(index, in: state)
                 case .function(let fn):
@@ -159,7 +162,13 @@ public enum LuaValue: Hashable, Sendable {
             default: break
         }
         if let mt = await metatable(in: state.luaState)?[.Constants.__newindex] {
+            if mt == self {
+                throw await Lua.error(in: state, message: "loop in gettable")
+            }
             switch mt {
+                case .table:
+                    try await mt.index(index, value: value, in: state)
+                    return
                 case .function(let fn):
                     _ = try await fn.call(in: state, with: [self, index, value])
                     return

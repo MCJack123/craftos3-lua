@@ -59,4 +59,12 @@ public actor LuaState {
             case .thread: threadMetatable = table
         }
     }
+
+    public func global(named name: String) async -> LuaValue {
+        return await globalTable[name]
+    }
+
+    public func global(named name: String, value: LuaValue) async {
+        await globalTable.set(index: name, value: value)
+    }
 }

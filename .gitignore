@@ -1,5 +1,5 @@
 .DS_Store
-/.build
+.build
 /*.xcodeproj
 xcuserdata/
 DerivedData/
@@ -7,3 +7,5 @@ DerivedData/
 .swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
 .netrc
 *.luac*
+luac.out
+*.lua.txt

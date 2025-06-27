@@ -95,14 +95,15 @@ public actor CallInfo {
                                 let tabsz = (c >> 3) == 0 ? c & 7 : (8 | (c & 7)) << ((c >> 3) - 1)
                                 stack[a] = .table(LuaTable(hash: Int(tabsz), array: Int(arrsz), state: state.luaState))
                             case .SELF:
-                                stack[a+1] = stack[b]
-                                stack[a] = try await stack[b].index(rkc, in: state)
+                                let t = stack[b]
+                                stack[a] = try await t.index(rkc, in: state)
+                                stack[a+1] = t
                             case .ADD, .SUB, .MUL, .DIV, .MOD, .POW:
                                 stack[a] = try await LuaVM.arith(op: op, rkb, rkc, state: state)
                             case .UNM:
                                 if let n = stack[b].toNumber {
                                     stack[a] = .number(-n)
-                                } else if let mt = await stack[b].metatable(in: state.luaState)?.metatable?[.Constants.__unm].optional {
+                                } else if let mt = await stack[b].metatable(in: state.luaState)?[.Constants.__unm].optional {
                                     switch mt {
                                         case .function(let fn):
                                             let res = try await fn.call(in: state, with: [stack[b]])
@@ -118,7 +119,7 @@ public actor CallInfo {
                                 switch stack[b] {
                                     case .string(let s): stack[a] = .number(Double(s.string.count))
                                     default:
-                                        if let mt = await stack[b].metatable(in: state.luaState)?.metatable?[.Constants.__len] {
+                                        if let mt = await stack[b].metatable(in: state.luaState)?[.Constants.__len] {
                                             switch mt {
                                                 case .function(let fn):
                                                     let res = try await fn.call(in: state, with: [stack[b]])
@@ -229,7 +230,7 @@ public actor CallInfo {
                                     return (res, nil)
                                 }
                                 let stackTop = await state.top()
-                                if let newpc = await stackTop.doReturn(with: &res) {
+                                if let newpc = await stackTop.doReturn(with: &res, numResults: numResults) {
                                     pc = newpc
                                     return (nil, stackTop)
                                 } else {
@@ -366,11 +367,12 @@ public actor CallInfo {
         }
     }
 
-    private func call(function fn: LuaFunction, at idx: Int, args: Int?, returns: Int?, state: LuaThread, tailCall: Bool) async throws -> CallInfo? {
+    private func call(function fn: LuaFunction, at idx: Int, args: Int?, returns: Int?, state: LuaThread, tailCall: Bool, metamethod: Bool = false) async throws -> CallInfo? {
         switch fn {
             case .lua(let cl):
                 let nextci = CallInfo(for: fn, numResults: returns, stackSize: Int(cl.proto.stackSize))
                 var argv = args != nil ? (args == 0 ? [] : [LuaValue](stack[(idx + 1) ... (idx + args!)])) : [LuaValue](stack[(idx+1)..<top])
+                if metamethod {argv.insert(stack[idx], at: 0)}
                 if argv.count > cl.proto.numParams {
                     if cl.proto.isVararg != 0 {
                         await nextci.setupVarargs(with: [LuaValue](argv[Int(cl.proto.numParams)...]))
@@ -420,7 +422,7 @@ public actor CallInfo {
                 if let meta = await stack[idx].metatable(in: state.luaState)?[.Constants.__call] {
                     switch meta {
                         case .function(let fn):
-                            return try await call(function: fn, at: idx, args: args, returns: returns, state: state, tailCall: tailCall)
+                            return try await call(function: fn, at: idx, args: args, returns: returns, state: state, tailCall: tailCall, metamethod: true)
                         default: break
                     }
                 }
@@ -428,7 +430,7 @@ public actor CallInfo {
         }
     }
 
-    private func doReturn(with res: inout [LuaValue]) -> Int? {
+    private func doReturn(with res: inout [LuaValue], numResults: Int?) -> Int? {
         switch function {
             case .lua(let newcl):
                 if let numResults = numResults {

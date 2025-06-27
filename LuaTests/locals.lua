@@ -126,32 +126,32 @@ assert(_ENV == _G)
 
 do local _ENV = (function (...) return ... end)(_G, dummy)
 
-do local _ENV = {assert=assert}; assert(true) end
-mt = {_G = _G}
-local foo,x
-do local _ENV = mt
-  function foo (x)
-    A = x
-    do local _ENV =  _G; A = 1000 end
-    return function (x) return A .. x end
+  do local _ENV = {assert=assert}; assert(true) end
+  mt = {_G = _G}
+  local foo,x
+  do local _ENV = mt
+    function foo (x)
+      A = x
+      do local _ENV =  _G; A = 1000 end
+      return function (x) return A .. x end
+    end
   end
-end
-assert(getenv(foo) == mt)
-x = foo('hi'); assert(mt.A == 'hi' and A == 1000)
-assert(x('*') == mt.A .. '*')
+  assert(getenv(foo) == mt)
+  x = foo('hi'); assert(mt.A == 'hi' and A == 1000)
+  assert(x('*') == mt.A .. '*')
 
-do local _ENV = {assert=assert, A=10};
-  do local _ENV = {assert=assert, A=20};
-    assert(A==20);x=A
+  do local _ENV = {assert=assert, A=10};
+    do local _ENV = {assert=assert, A=20};
+      assert(A==20);x=A
+    end
+    assert(A==10 and x==20)
   end
-  assert(A==10 and x==20)
-end
-assert(x==20)
+  assert(x==20)
 
 
-print('OK')
+  print('OK')
 
-return 5,f
+  return 5,f
 
 end
 

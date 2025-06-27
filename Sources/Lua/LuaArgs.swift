@@ -39,8 +39,10 @@ public struct LuaArgs: Sendable {
     }
 
     public subscript(index: PartialRangeFrom<Int>) -> ArraySlice<LuaValue> {
-        if index.lowerBound > args.count {
+        if index.lowerBound > args.count || index.lowerBound == 0 || index.lowerBound <= -args.count {
             return []
+        } else if index.lowerBound < 0 {
+            return args[(args.count + index.lowerBound)...]
         }
         return args[(index.lowerBound - 1)...]
     }

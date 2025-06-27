@@ -16,7 +16,7 @@ function test (s, l, p)
     assert(event == 'line')
     local l = table.remove(l, 1)
     if p then print(l, line) end
-    assert(l == line, "wrong trace!!")
+    assert(l == line, "wrong trace!! " .. l .. " ~= " .. line)
   end
   debug.sethook(f,"l"); load(s)(); debug.sethook()
   assert(#l == 0)
@@ -71,6 +71,7 @@ a = nil; f = nil;
 repeat
   local g = {x = function ()
     local a = debug.getinfo(2)
+    print(a.name, a.namewhat)
     assert(a.name == 'f' and a.namewhat == 'local')
     a = debug.getinfo(1)
     assert(a.name == 'x' and a.namewhat == 'field')
@@ -84,7 +85,8 @@ repeat
   function f (x, name)   -- local!
     name = name or 'f'
     local a = debug.getinfo(1)
-    assert(a.name == name and a.namewhat == 'local')
+    print(a.name, a.namewhat)
+    assert(a.name == name and a.namewhat == 'local', debug.traceback())
     return x
   end
 
@@ -238,7 +240,7 @@ function f(a,b)
   local _, y = debug.getlocal(1, 2)
   assert(x == a and y == b)
   assert(debug.setlocal(2, 3, "pera") == "AA".."AA")
-  assert(debug.setlocal(2, 4, "maçã") == "B")
+  assert(debug.setlocal(2, 4, "maï¿½ï¿½") == "B")
   x = debug.getinfo(2)
   assert(x.func == g and x.what == "Lua" and x.name == 'g' and
          x.nups == 1 and string.find(x.source, "^@.*db%.lua$"))
@@ -266,9 +268,9 @@ function g(...)
   local arg = {...}
   do local a,b,c; a=math.sin(40); end
   local feijao
-  local AAAA,B = "xuxu", "mamão"
+  local AAAA,B = "xuxu", "mamï¿½o"
   f(AAAA,B)
-  assert(AAAA == "pera" and B == "maçã")
+  assert(AAAA == "pera" and B == "maï¿½ï¿½")
   do
      local B = 13
      local x,y = debug.getlocal(1,5)

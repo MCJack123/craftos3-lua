@@ -73,11 +73,13 @@ public enum LuaString: Hashable, Sendable, Comparable, CustomStringConvertible {
     }
 
     public static func string(_ str: String) -> LuaString {
-        return .string(str.map {$0.asciiValue ?? 0})
+        return .string(str.map {
+            if let val = $0.unicodeScalars.first?.value, val < 256 {UInt8(val)} else {0}
+        })
     }
 
     public static func == (lhs: LuaString, rhs: LuaString) -> Bool {
-        return lhs.string == rhs.string
+        return lhs.bytes == rhs.bytes
     }
 
     public static func < (lhs: LuaString, rhs: LuaString) -> Bool {
@@ -86,6 +88,10 @@ public enum LuaString: Hashable, Sendable, Comparable, CustomStringConvertible {
 
     public static func <= (lhs: LuaString, rhs: LuaString) -> Bool {
         return lhs.string <= rhs.string
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(bytes)
     }
 
     public var description: String {

@@ -5,6 +5,7 @@ internal class LuaCode {
         case local
         case upvalue
         case global
+        case globalLocal
     }
 
     fileprivate class LocalInfo {
@@ -139,7 +140,7 @@ internal class LuaCode {
                         upvalues[name] = (nextUpvalue, false, idx)
                         nextUpvalue += 1
                         return (.upvalue, nextUpvalue - 1)
-                    case .global:
+                    case .global, .globalLocal:
                         if let env = upvalues["_ENV"] {
                             return (.global, env.0)
                         } else {
@@ -157,6 +158,11 @@ internal class LuaCode {
                                 case .global:
                                     // this should never happen
                                     upvalues["_ENV"] = (nextUpvalue, false, idx)
+                                    nextUpvalue += 1
+                                    return (.global, nextUpvalue - 1)
+                                case .globalLocal:
+                                    // this should never happen
+                                    upvalues["_ENV"] = (nextUpvalue, true, idx)
                                     nextUpvalue += 1
                                     return (.global, nextUpvalue - 1)
                             }
@@ -247,9 +253,21 @@ internal class LuaCode {
                 local.1.endpc = fn.top + 1
                 return (.local, local.0)
             } else if let parent = parent {
-                return parent.variable(named: name)
+                let v = parent.variable(named: name)
+                if v.0 == .global || v.0 == .globalLocal, let env = locals["_ENV"] {
+                    env.1.endpc = fn.top + 1
+                    return (.globalLocal, env.0)
+                } else {
+                    return v
+                }
             } else {
-                return fn.upvalue(named: name)
+                let v = fn.upvalue(named: name)
+                if v.0 == .global || v.0 == .globalLocal, let env = locals["_ENV"] {
+                    env.1.endpc = fn.top + 1
+                    return (.globalLocal, env.0)
+                } else {
+                    return v
+                }
             }
         }
 
@@ -267,9 +285,22 @@ internal class LuaCode {
             return idx
         }
 
+        private func rk(for v: LuaValue, at idx: Int) -> UInt16 {
+            let k = fn.constant(for: v)
+            if k < 256 {return UInt16(0x100 | k)}
+            allocate(slot: idx)
+            if k >= 1 << 18 {
+                _ = fn.add(opcode: .iABC(.LOADKX, UInt8(idx), 0, 0))
+                _ = fn.add(opcode: .iAx(.EXTRAARG, UInt32(k)))
+            } else {
+                _ = fn.add(opcode: .iABx(.LOADK, UInt8(idx), UInt32(k)))
+            }
+            return UInt16(idx)
+        }
+
         private func rk(for expr: LuaParser.Expression, at idx: Int) -> UInt16 {
             if case let .constant(v) = expr {
-                return UInt16(0x100 | fn.constant(for: v))
+                return rk(for: v, at: idx)
             } else if case let .prefixexp(pexp) = expr, case let .name(name) = pexp {
                 let (type, k) = variable(named: name)
                 switch type {
@@ -281,6 +312,10 @@ internal class LuaCode {
                     case .global:
                         allocate(slot: idx)
                         _ = fn.add(opcode: .iABC(.GETTABUP, UInt8(idx), UInt16(k), UInt16(0x100 | fn.constant(for: .string(.string(name))))))
+                        return UInt16(idx)
+                    case .globalLocal:
+                        allocate(slot: idx)
+                        _ = fn.add(opcode: .iABC(.GETTABLE, UInt8(idx), UInt16(k), UInt16(0x100 | fn.constant(for: .string(.string(name))))))
                         return UInt16(idx)
                 }
             } else {
@@ -298,7 +333,8 @@ internal class LuaCode {
                     switch type {
                         case .local: _ = fn.add(opcode: .iABC(.MOVE, UInt8(idx), UInt16(vidx), 0))
                         case .upvalue: _ = fn.add(opcode: .iABC(.GETUPVAL, UInt8(idx), UInt16(vidx), 0))
-                        case .global: _ = fn.add(opcode: .iABC(.GETTABUP, UInt8(idx), UInt16(vidx), UInt16(0x100 | fn.constant(for: .string(.string(name))))))
+                        case .global: _ = fn.add(opcode: .iABC(.GETTABUP, UInt8(idx), UInt16(vidx), rk(for: .string(.string(name)), at: idx)))
+                        case .globalLocal: _ = fn.add(opcode: .iABC(.GETTABLE, UInt8(idx), UInt16(vidx), rk(for: .string(.string(name)), at: idx)))
                     }
                     if results > 1 {
                         _ = fn.add(opcode: .iABC(.LOADNIL, UInt8(idx + 1), UInt16(results - 2), 0))
@@ -307,7 +343,7 @@ internal class LuaCode {
                     // TODO: GETTABUP optimization
                     prefixexp(pexp, to: idx)
                     if case let .constant(val) = iexp {
-                        _ = fn.add(opcode: .iABC(.GETTABLE, UInt8(idx), UInt16(idx), UInt16(0x100 | fn.constant(for: val))))
+                        _ = fn.add(opcode: .iABC(.GETTABLE, UInt8(idx), UInt16(idx), rk(for: val, at: idx + 1)))
                     } else {
                         expression(iexp, to: idx + 1)
                         _ = fn.add(opcode: .iABC(.GETTABLE, UInt8(idx), UInt16(idx), UInt16(idx + 1)))
@@ -319,15 +355,18 @@ internal class LuaCode {
                     if case let .name(vname) = pexp {
                         let (type, vidx) = variable(named: vname)
                         switch type {
-                            case .local: _ = fn.add(opcode: .iABC(.GETTABLE, UInt8(idx), UInt16(vidx), UInt16(0x100 | fn.constant(for: .string(.string(name))))))
-                            case .upvalue: _ = fn.add(opcode: .iABC(.GETTABUP, UInt8(idx), UInt16(vidx), UInt16(0x100 | fn.constant(for: .string(.string(name))))))
+                            case .local: _ = fn.add(opcode: .iABC(.GETTABLE, UInt8(idx), UInt16(vidx), rk(for: .string(.string(name)), at: idx)))
+                            case .upvalue: _ = fn.add(opcode: .iABC(.GETTABUP, UInt8(idx), UInt16(vidx), rk(for: .string(.string(name)), at: idx)))
                             case .global:
-                                _ = fn.add(opcode: .iABC(.GETTABUP, UInt8(idx), UInt16(vidx), UInt16(0x100 | fn.constant(for: .string(.string(vname))))))
-                                _ = fn.add(opcode: .iABC(.GETTABLE, UInt8(idx), UInt16(idx), UInt16(0x100 | fn.constant(for: .string(.string(name))))))
+                                _ = fn.add(opcode: .iABC(.GETTABUP, UInt8(idx), UInt16(vidx), rk(for: .string(.string(vname)), at: idx)))
+                                _ = fn.add(opcode: .iABC(.GETTABLE, UInt8(idx), UInt16(idx), rk(for: .string(.string(name)), at: idx)))
+                            case .globalLocal:
+                                _ = fn.add(opcode: .iABC(.GETTABLE, UInt8(idx), UInt16(vidx), rk(for: .string(.string(vname)), at: idx)))
+                                _ = fn.add(opcode: .iABC(.GETTABLE, UInt8(idx), UInt16(idx), rk(for: .string(.string(name)), at: idx)))
                         }
                     } else {
                         prefixexp(pexp, to: idx)
-                        _ = fn.add(opcode: .iABC(.GETTABLE, UInt8(idx), UInt16(idx), UInt16(0x100 | fn.constant(for: .string(.string(name))))))
+                        _ = fn.add(opcode: .iABC(.GETTABLE, UInt8(idx), UInt16(idx), rk(for: .string(.string(name)), at: idx + 1)))
                     }
                     if results > 1 {
                         _ = fn.add(opcode: .iABC(.LOADNIL, UInt8(idx + 1), UInt16(results - 2), 0))
@@ -351,7 +390,7 @@ internal class LuaCode {
                     _ = fn.add(opcode: .iABC(.CALL, UInt8(idx), UInt16(vararg ? 0 : args.count + 1), UInt16(results + 1)))
                 case .callSelf(let pexp, let name, let args):
                     prefixexp(pexp, to: idx)
-                    _ = fn.add(opcode: .iABC(.SELF, UInt8(idx), UInt16(idx), UInt16(0x100 | fn.constant(for: .string(.string(name))))))
+                    _ = fn.add(opcode: .iABC(.SELF, UInt8(idx), UInt16(idx), rk(for: .string(.string(name)), at: idx + 1)))
                     var vararg = false
                     loop: for (i, v) in args.enumerated() {
                         if i == args.count - 1 {
@@ -396,7 +435,8 @@ internal class LuaCode {
                             switch type {
                                 case .local: _ = fn.add(opcode: .iABC(.MOVE, UInt8(idx), UInt16(vidx), 0))
                                 case .upvalue: _ = fn.add(opcode: .iABC(.GETUPVAL, UInt8(idx), UInt16(vidx), 0))
-                                case .global: _ = fn.add(opcode: .iABC(.GETTABUP, UInt8(idx), UInt16(vidx), UInt16(0x100 | fn.constant(for: .string(.string(name))))))
+                                case .global: _ = fn.add(opcode: .iABC(.GETTABUP, UInt8(idx), UInt16(vidx), rk(for: .string(.string(name)), at: idx)))
+                                case .globalLocal: _ = fn.add(opcode: .iABC(.GETTABLE, UInt8(idx), UInt16(vidx), rk(for: .string(.string(name)), at: idx)))
                             }
                             return
                         case .field(.name(let name), let field):
@@ -404,9 +444,10 @@ internal class LuaCode {
                             switch type {
                                 case .local: _ = fn.add(opcode: .iABC(.MOVE, UInt8(idx), UInt16(vidx), 0))
                                 case .upvalue: _ = fn.add(opcode: .iABC(.GETUPVAL, UInt8(idx), UInt16(vidx), 0))
-                                case .global: _ = fn.add(opcode: .iABC(.GETTABUP, UInt8(idx), UInt16(vidx), UInt16(0x100 | fn.constant(for: .string(.string(name))))))
+                                case .global: _ = fn.add(opcode: .iABC(.GETTABUP, UInt8(idx), UInt16(vidx), rk(for: .string(.string(name)), at: idx)))
+                                case .globalLocal: _ = fn.add(opcode: .iABC(.GETTABLE, UInt8(idx), UInt16(vidx), rk(for: .string(.string(name)), at: idx)))
                             }
-                            _ = fn.add(opcode: .iABC(.GETTABLE, UInt8(idx), UInt16(idx), UInt16(0x100 | fn.constant(for: .string(.string(field))))))
+                            _ = fn.add(opcode: .iABC(.GETTABLE, UInt8(idx), UInt16(idx), rk(for: .string(.string(field)), at: idx + 1)))
                             return
                         default: break
                     }
@@ -500,24 +541,24 @@ internal class LuaCode {
                             case .field(let name, let val):
                                 let vidx: UInt16
                                 if case let .constant(v) = val {
-                                    vidx = UInt16(0x100 | fn.constant(for: v))
+                                    vidx = rk(for: v, at: idx + 1)
                                 } else {
                                     allocate(slot: idx + 1)
                                     expression(val, to: idx + 1)
                                     vidx = UInt16(idx + 1)
                                 }
-                                _ = fn.add(opcode: .iABC(.SETTABLE, UInt8(idx), UInt16(0x100 | fn.constant(for: .string(.string(name)))), vidx))
+                                _ = fn.add(opcode: .iABC(.SETTABLE, UInt8(idx), rk(for: .string(.string(name)), at: idx + 2), vidx))
                             case .keyed(let key, let val):
                                 let kidx: UInt16, vidx: UInt16
                                 if case let .constant(k) = key {
-                                    kidx = UInt16(0x100 | fn.constant(for: k))
+                                    kidx = rk(for: k, at: idx + 1)
                                 } else {
                                     allocate(slot: idx + 1)
                                     expression(key, to: idx + 1)
                                     kidx = UInt16(idx + 1)
                                 }
                                 if case let .constant(v) = val {
-                                    vidx = UInt16(0x100 | fn.constant(for: v))
+                                    vidx = rk(for: v, at: idx + 2)
                                 } else {
                                     allocate(slot: idx + 2)
                                     expression(val, to: idx + 2)
@@ -627,9 +668,9 @@ internal class LuaCode {
                     for i in 1..<explist.count {
                         expression(explist[i], to: level)
                     }
-                    let k = fn.constant(for: .string(.string(field)))
+                    let k = rk(for: .string(.string(field)), at: level + 1)
                     expression(explist[0], to: level)
-                    _ = fn.add(opcode: .iABC(.SETTABLE, UInt8(idx), UInt16(k + 256), UInt16(level)))
+                    _ = fn.add(opcode: .iABC(.SETTABLE, UInt8(idx), k, UInt16(level)))
                     return
                 }
             } else if vars.count == 1,
@@ -670,10 +711,11 @@ internal class LuaCode {
                         switch type {
                             case .local: _ = fn.add(opcode: .iABC(.MOVE, UInt8(idx), UInt16(level + i + tables), 0))
                             case .upvalue: _ = fn.add(opcode: .iABC(.SETUPVAL, UInt8(level + i + tables), UInt16(idx), 0))
-                            case .global: _ = fn.add(opcode: .iABC(.SETTABUP, UInt8(idx), UInt16(0x100 | fn.constant(for: .string(.string(name)))), UInt16(level + i + tables)))
+                            case .global: _ = fn.add(opcode: .iABC(.SETTABUP, UInt8(idx), rk(for: .string(.string(name)), at: level + i + tables + 1), UInt16(level + i + tables)))
+                            case .globalLocal: _ = fn.add(opcode: .iABC(.SETTABLE, UInt8(idx), rk(for: .string(.string(name)), at: level + i + tables + 1), UInt16(level + i + tables)))
                         }
                     case .field(_, let name):
-                        _ = fn.add(opcode: .iABC(.SETTABLE, UInt8(level + nexttable), UInt16(0x100 | fn.constant(for: .string(.string(name)))), UInt16(level + i + tables)))
+                        _ = fn.add(opcode: .iABC(.SETTABLE, UInt8(level + nexttable), rk(for: .string(.string(name)), at: level + i + tables + 1), UInt16(level + i + tables)))
                         nexttable += 1
                     case .index:
                         _ = fn.add(opcode: .iABC(.SETTABLE, UInt8(level + nexttable), UInt16(level + nexttable + 1), UInt16(level + i + tables)))

@@ -200,6 +200,14 @@ public final class Lua: Sendable {
     public func hook(function: LuaFunction?, for events: HookFlags, count: Int = 0) async {
         return await thread.hook(function: function, for: events, count: count)
     }
+
+    public func global(named name: String) async -> LuaValue {
+        return await luaState.global(named: name)
+    }
+
+    public func global(named name: String, value: LuaValue) async {
+        await luaState.global(named: name, value: value)
+    }
 }
 
 @attached(member, names: arbitrary)
