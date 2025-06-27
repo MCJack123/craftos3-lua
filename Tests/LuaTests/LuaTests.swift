@@ -10,20 +10,21 @@ final class LuaTests: XCTestCase {
     // https://developer.apple.com/documentation/xctest/defining_test_cases_and_test_methods
 
     private func doTest(named name: String) async throws {
-        let state = LuaState(withLibraries: true)
-        let env = state.globalTable!
-        env["arg"] = .table(LuaTable())
-        env["_soft"] = .boolean(true)
-        env["_port"] = .boolean(true)
-        env["_no32"] = .boolean(false)
-        env["_nomsg"] = .boolean(false)
-        env["_noposix"] = .boolean(false)
-        env["_nolonglong"] = .boolean(false)
-        env["_noformatA"] = .boolean(false)
-        env["require"] = .function(.swift(LuaSwiftFunction {state, args in [env[args[1]]]}))
-        env["collectgarbage"] = .function(.swift(.empty))
+        let state = await LuaState(withLibraries: true)
+        await state.globalTable!.isolated {env in
+            env["arg"] = .table(LuaTable())
+            env["_soft"] = .boolean(true)
+            env["_port"] = .boolean(true)
+            env["_no32"] = .boolean(false)
+            env["_nomsg"] = .boolean(false)
+            env["_noposix"] = .boolean(false)
+            env["_nolonglong"] = .boolean(false)
+            env["_noformatA"] = .boolean(false)
+            env["require"] = .function(.swift(LuaSwiftFunction {state, args in [await env[args[1]]]}))
+            env["collectgarbage"] = .function(.swift(.empty))
+        }
         print("==> Loading test \(name)")
-        let cl = try await LuaLoad.load(from: try String(contentsOf: URL(fileURLWithPath: "LuaTests/" + name), encoding: .isoLatin1), named: "@" + name, mode: .text, environment: .table(env))
+        let cl = try await LuaLoad.load(from: try String(contentsOf: URL(fileURLWithPath: "LuaTests/" + name), encoding: .isoLatin1), named: "@" + name, mode: .text, environment: .table(state.globalTable!))
         let fn = LuaFunction.lua(cl)
         try Data(cl.proto.dump()).write(to: URL(fileURLWithPath: "LuaTests/\(name)c"))
         print("==> Running test \(name)")
@@ -59,9 +60,9 @@ final class LuaTests: XCTestCase {
     func testVerybig() async throws {try await doTest(named: "verybig.lua")}
 
     func testLuaObject() async throws {
-        let state = LuaState(withLibraries: true)
-        let env = state.globalTable!
-        env["obj"] = .object(TestObject())
+        let state = await LuaState(withLibraries: true)
+        let env = await state.globalTable!
+        await env.set(index: "obj", value: .object(TestObject()))
         let cl = try await LuaLoad.load(from: """
             obj:testNoArgs()
             obj:testOneArg(2)
@@ -92,9 +93,9 @@ final class LuaTests: XCTestCase {
     }
 
     func testLuaLibrary() async throws {
-        let state = LuaState(withLibraries: true)
-        let env = state.globalTable!
-        env.load(library: TestLibrary())
+        let state = await LuaState(withLibraries: true)
+        let env = await state.globalTable!
+        await env.load(library: TestLibrary())
         let cl = try await LuaLoad.load(from: """
             assert(test._VERSION == "1.0")
             assert(test.getValue() == "test")
@@ -112,7 +113,7 @@ final class LuaTests: XCTestCase {
 }
 
 @LuaObject
-public class TestObject {
+public final class TestObject {
     public func testNoArgs() {
         
     }
@@ -133,8 +134,8 @@ public class TestObject {
         return "no args"
     }
     
-    public func testTwoArgsReturn(_ a: LuaTable, _ b: LuaValue) -> LuaValue {
-        return a[b]
+    public func testTwoArgsReturn(_ a: LuaTable, _ b: LuaValue) async -> LuaValue {
+        return await a[b]
     }
     
     public func testOptionalReturn() -> String? {
@@ -163,7 +164,7 @@ public class TestObject {
     
     public func testThrows(state: Lua, a: LuaValue) throws -> LuaTable {
         guard case let .table(t) = a else {
-            throw await Lua.error(in: state, message: "not a table")
+            throw Lua.LuaError.luaError(message: .string(.string("not a table")))
         }
         return t
     }
@@ -186,7 +187,7 @@ public class TestObject {
 }
 
 @LuaLibrary(named: "test")
-public class TestLibrary {
+public actor TestLibrary {
     private var value: String = "test"
 
     public static let _VERSION = "1.0"

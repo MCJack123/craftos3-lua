@@ -206,6 +206,6 @@ public final class Lua: Sendable {
 @attached(extension, conformances: LuaObject, names: named(userdata))
 public macro LuaObject() = #externalMacro(module: "LuaMacros", type: "LuaObjectMacro")
 
-public protocol LuaObject {
+public protocol LuaObject: Sendable {
     func userdata() -> LuaUserdata
 }

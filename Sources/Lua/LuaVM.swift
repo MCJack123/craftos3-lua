@@ -434,7 +434,11 @@ public actor CallInfo {
                 if let numResults = numResults {
                     if res.count < numResults {res.append(contentsOf: [LuaValue](repeating: .nil, count: numResults - res.count))}
                     else if res.count > numResults {res = [LuaValue](res[0..<numResults])}
-                    stack.replaceSubrange(top..<(top + res.count), with: res)
+                    if top + res.count > stack.count {
+                        stack.replaceSubrange(top..<stack.count, with: res[0..<(top + res.count - stack.count)])
+                    } else {
+                        stack.replaceSubrange(top..<(top + res.count), with: res)
+                    }
                 } else {
                     stack.append(contentsOf: res)
                     if stack.count < newcl.proto.stackSize {
