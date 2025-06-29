@@ -18,7 +18,7 @@ public struct LuaObjectMacro: MemberMacro, ExtensionMacro {
         let objectExtension: DeclSyntax =
             """
             extension \(type.trimmed): LuaObject {
-                \(raw: declaration.is(ActorDeclSyntax.self) ? "nonisolated " : "")public func userdata() -> LuaUserdata {return LuaUserdata(for: self, with: \(type.trimmed).metatable)}
+                \(raw: declaration.is(ActorDeclSyntax.self) ? "nonisolated " : "")public func userdata() -> any LuaUserdata {return LuaFullUserdata(for: self, with: \(type.trimmed).metatable)}
             }
             """
 

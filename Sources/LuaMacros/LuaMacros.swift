@@ -32,6 +32,9 @@ internal func convert(type: TypeSyntax, atParameter index: Int, defaultValue: In
         optional = true
         type = typ.wrappedType
     }
+    if let typ = type.as(SomeOrAnyTypeSyntax.self), let ityp = typ.constraint.as(IdentifierTypeSyntax.self), ityp.name.text == "LuaUserdata" {
+        return "let _\(raw: index) = \(raw: optional ? "try?" : "try") await args.checkUserdata(at: \(raw: index))\n"
+    }
     if let typ = type.as(IdentifierTypeSyntax.self) {
         switch typ.name.text {
             case "LuaValue":
@@ -93,6 +96,8 @@ internal func convert(typeForReturnValue type: TypeSyntax, context: some MacroEx
                             context.addDiagnostics(from: e, node: type)
                             throw e
                     }
+                } else if let typ = typ.wrappedType.as(SomeOrAnyTypeSyntax.self), let ityp = typ.constraint.as(IdentifierTypeSyntax.self), ityp.name.text == "LuaUserdata" {
+                    items.append(ArrayElementSyntax(expression: ExprSyntax(".userdata(res.\(raw: i)), ")))
                 } else {
                     let e = LuaMacroError.typeError(node: type, text: t.trimmedDescription)
                     context.addDiagnostics(from: e, node: type)
@@ -123,6 +128,8 @@ internal func convert(typeForReturnValue type: TypeSyntax, context: some MacroEx
                         context.addDiagnostics(from: e, node: type)
                         throw e
                 }
+            } else if let typ = t.type.as(SomeOrAnyTypeSyntax.self), let ityp = typ.constraint.as(IdentifierTypeSyntax.self), ityp.name.text == "LuaUserdata" {
+                items.append(ArrayElementSyntax(expression: ExprSyntax(".userdata(res.\(raw: i)), ")))
             } else {
                 let e = LuaMacroError.typeError(node: type, text: t.trimmedDescription)
                 context.addDiagnostics(from: e, node: type)
@@ -157,6 +164,8 @@ internal func convert(typeForReturnValue type: TypeSyntax, context: some MacroEx
                     context.addDiagnostics(from: e, node: type)
                     throw e
             }
+        } else if let typ = typ.wrappedType.as(SomeOrAnyTypeSyntax.self), let ityp = typ.constraint.as(IdentifierTypeSyntax.self), ityp.name.text == "LuaUserdata" {
+            return "[res != nil ? .userdata(res!) : .nil]"
         } else {
             let e = LuaMacroError.typeError(node: type, text: type.trimmedDescription)
             context.addDiagnostics(from: e, node: type)
@@ -188,6 +197,9 @@ internal func convert(typeForReturnValue type: TypeSyntax, context: some MacroEx
                 context.addDiagnostics(from: e, node: type)
                 throw e
         }
+    }
+    if let typ = type.as(SomeOrAnyTypeSyntax.self), let ityp = typ.constraint.as(IdentifierTypeSyntax.self), ityp.name.text == "LuaUserdata" {
+        return "[.userdata(res)]"
     }
     if let typ = type.as(ArrayTypeSyntax.self), let typ2 = typ.element.as(IdentifierTypeSyntax.self), typ2.name.text == "LuaValue" {
         return "res"

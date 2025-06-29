@@ -75,19 +75,21 @@ public actor CallInfo {
                             case .GETUPVAL:
                                 stack[a] = await cl.upvalues[b].value
                             case .GETTABUP:
-                                if b >= cl.upvalues.count {
+                                if let uv = await cl.upvalue(Int(b)+1) {
+                                    stack[a] = try await uv.value.index(rkc, in: state)
+                                } else {
                                     throw await Lua.error(in: state, message: "attempt to index upvalue '?' (a nil value)")
                                 }
-                                stack[a] = try await cl.upvalues[b].value.index(rkc, in: state)
                             case .GETTABLE:
                                 stack[a] = try await stack[b].index(rkc, in: state)
                             case .SETUPVAL:
                                 await cl.upvalues[b].set(value: stack[a])
                             case .SETTABUP:
-                                if a >= cl.upvalues.count {
+                                if let uv = await cl.upvalue(Int(a)+1) {
+                                    try await uv.value.index(rkb, value: rkc, in: state)
+                                } else {
                                     throw await Lua.error(in: state, message: "attempt to index upvalue '?' (a nil value)")
                                 }
-                                try await cl.upvalues[a].value.index(rkb, value: rkc, in: state)
                             case .SETTABLE:
                                 try await stack[a].index(rkb, value: rkc, in: state)
                             case .NEWTABLE:
@@ -312,10 +314,10 @@ public actor CallInfo {
                                             openUpvalues[Int(upval.1)] = uv
                                         }
                                     } else {
-                                        upvalues.append(cl.upvalues[upval.1])
+                                        await upvalues.append(cl.upvalues[upval.1])
                                     }
                                 }
-                                stack[a] = .function(.lua(LuaClosure(for: proto, with: upvalues)))
+                                stack[a] = .function(.lua(await state.luaState.closure(for: proto, with: upvalues)))
                             default: throw Lua.LuaError.vmError
                         }
                     case .iAsBx(let op, let a, let sbx):

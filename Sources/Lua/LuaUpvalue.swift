@@ -32,6 +32,18 @@ public actor LuaUpvalue: Equatable {
         _value = value
     }
 
+    private func swap(stack: CallInfo?, index: Int?, _value: LuaValue?) -> (CallInfo?, Int?, LuaValue?) {
+        let retval = (self.stack, self.index, self._value)
+        self.stack = stack
+        self.index = index
+        self._value = _value
+        return retval
+    }
+
+    internal func join(from other: LuaUpvalue) async {
+        (self.stack, self.index, self._value) = await other.swap(stack: self.stack, index: self.index, _value: self._value)
+    }
+
     internal func `in`(stack ci: CallInfo, at pos: Int) -> Bool {
         return stack === ci && index == pos
     }

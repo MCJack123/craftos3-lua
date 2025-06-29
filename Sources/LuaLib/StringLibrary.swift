@@ -51,7 +51,7 @@ internal struct StringLibrary: LuaLibrary {
         switch function {
             case .swift: throw await state.error("unable to dump given function")
             case .lua(let fn):
-                let dump = fn.proto.dump()
+                let dump = await fn.proto.dump()
                 return [.string(.string(dump))]
         }
     }

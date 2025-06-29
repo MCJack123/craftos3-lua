@@ -5,7 +5,7 @@ import PackageDescription
 import CompilerPluginSupport
 
 let package = Package(
-    name: "Lua",
+    name: "craftos3-lua",
     platforms: [
         .macOS(.v10_15),
         .iOS(.v13),

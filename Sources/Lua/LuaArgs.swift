@@ -177,7 +177,7 @@ public struct LuaArgs: Sendable {
         throw await argumentError(at: index, for: val, expected: "thread")
     }
 
-    public func checkUserdata(at index: Int, default defaultValue: LuaUserdata? = nil) async throws -> LuaUserdata {
+    public func checkUserdata(at index: Int, default defaultValue: (any LuaUserdata)? = nil) async throws -> any LuaUserdata {
         var val = LuaValue.nil
         if index <= args.count {
             val = args[index-1]
@@ -185,7 +185,9 @@ public struct LuaArgs: Sendable {
         if defaultValue != nil && val == .nil {
             return defaultValue!
         }
-        if case let .userdata(val) = val {
+        if case let .lightuserdata(val) = val {
+            return val
+        } else if case let .fulluserdata(val) = val {
             return val
         }
         throw await argumentError(at: index, for: val, expected: "userdata")
@@ -199,7 +201,9 @@ public struct LuaArgs: Sendable {
         if defaultValue != nil && val == .nil {
             return defaultValue!
         }
-        if case let .userdata(val) = val, let v = val.object as? T {
+        if case let .lightuserdata(val) = val, let v = val.object as? T {
+            return v
+        } else if case let .fulluserdata(val) = val, let v = val.object as? T {
             return v
         }
         throw await argumentError(at: index, for: val, expected: String(reflecting: T.self))

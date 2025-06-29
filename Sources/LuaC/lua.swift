@@ -12,7 +12,7 @@ class lua {
             if var line = readLine() {
                 if line.starts(with: "=") {line = "return " + line[line.index(after: line.startIndex)...]}
                 do {
-                    let cl = try await LuaLoad.load(from: line, named: "=stdin", mode: .text, environment: .table(state.globalTable))
+                    let cl = try await LuaLoad.load(from: line, named: "=stdin", mode: .text, environment: .table(state.globalTable), in: state)
                     let res = try await LuaFunction.lua(cl).call(in: state.currentThread, with: [])
                     print(res)
                 } catch let error as Lua.LuaError {

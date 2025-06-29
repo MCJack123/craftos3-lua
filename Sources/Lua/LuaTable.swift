@@ -31,7 +31,7 @@ public actor LuaTable: Hashable {
         private let strongValue: LuaValue?
         private weak var weakLuaFunction: LuaClosure?
         private weak var weakSwiftFunction: LuaSwiftFunction?
-        private weak var weakUserdata: LuaUserdata?
+        private weak var weakUserdata: LuaFullUserdata?
         private weak var weakThread: LuaThread?
         private weak var weakTable: LuaTable?
 
@@ -60,7 +60,7 @@ public actor LuaTable: Hashable {
                             type = .weakSwiftFunction
                             weakSwiftFunction = sfn
                     }
-                case .userdata(let ud):
+                case .fulluserdata(let ud):
                     type = .weakUserdata
                     weakUserdata = ud
                 case .thread(let th):
@@ -84,7 +84,7 @@ public actor LuaTable: Hashable {
                     if let v = weakSwiftFunction {return .function(.swift(v))}
                     return .nil
                 case .weakUserdata:
-                    if let v = weakUserdata {return .userdata(v)}
+                    if let v = weakUserdata {return .fulluserdata(v)}
                     return .nil
                 case .weakThread:
                     if let v = weakThread {return .thread(v)}

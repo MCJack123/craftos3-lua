@@ -7,7 +7,7 @@ public class LuaLoad {
         case any
     }
 
-    public static func load(from source: String, named name: String?, mode: LoadMode, environment env: LuaValue) async throws -> LuaClosure {
+    public static func load(from source: String, named name: String?, mode: LoadMode, environment env: LuaValue, in state: LuaState) async throws -> LuaClosure {
         if source.starts(with: "\u{1b}Lua") {
             if mode != .binary && mode != .any {
                 throw Lua.LuaError.runtimeError(message: "attempt to load a binary chunk")
@@ -23,7 +23,7 @@ public class LuaLoad {
                     upvalues.append(LuaUpvalue(with: .nil))
                 }
             }
-            return LuaClosure(for: res, with: upvalues)
+            return await state.closure(for: res, with: upvalues)
         } else {
             if mode != .text && mode != .any {
                 throw Lua.LuaError.runtimeError(message: "attempt to load a text chunk")
@@ -33,11 +33,15 @@ public class LuaLoad {
             if source.hasPrefix("#") {
                 source = String(source[source.index(after: source.firstIndex(of: "\n") ?? source.index(before: source.endIndex))...])
             }
-            return try await load(using: {if !called {called = true; return source.bytes} else {return nil}}, named: name?.bytes ?? source.bytes, mode: mode, environment: env)
+            return try await load(using: {if !called {called = true; return source.bytes} else {return nil}}, named: name?.bytes ?? source.bytes, mode: mode, environment: env, in: state)
         }
     }
 
-    public static func load(from source: [UInt8], named name: [UInt8]?, mode: LoadMode, environment env: LuaValue) async throws -> LuaClosure {
+    public static func load(from source: String, named name: String?, mode: LoadMode, environment env: LuaValue, in state: Lua) async throws -> LuaClosure {
+        return try await load(from: source, named: name, mode: mode, environment: env, in: state.luaState)
+    }
+
+    public static func load(from source: [UInt8], named name: [UInt8]?, mode: LoadMode, environment env: LuaValue, in state: LuaState) async throws -> LuaClosure {
         if source.starts(with: "\u{1b}Lua" as [UInt8]) {
             if mode != .binary && mode != .any {
                 throw Lua.LuaError.runtimeError(message: "attempt to load a binary chunk")
@@ -53,7 +57,7 @@ public class LuaLoad {
                     upvalues.append(LuaUpvalue(with: .nil))
                 }
             }
-            return LuaClosure(for: res, with: upvalues)
+            return await state.closure(for: res, with: upvalues)
         } else {
             if mode != .text && mode != .any {
                 throw Lua.LuaError.runtimeError(message: "attempt to load a text chunk")
@@ -63,11 +67,15 @@ public class LuaLoad {
             if source.starts(with: "#" as [UInt8]) {
                 source = [UInt8](source[source.index(after: source.firstIndex(of: "\n") ?? source.index(before: source.endIndex))...])
             }
-            return try await load(using: {if !called {called = true; return source} else {return nil}}, named: name ?? source, mode: mode, environment: env)
+            return try await load(using: {if !called {called = true; return source} else {return nil}}, named: name ?? source, mode: mode, environment: env, in: state)
         }
     }
 
-    public static func load(using loader: @escaping () async throws -> [UInt8]?, named name: [UInt8]?, mode: LoadMode, environment env: LuaValue) async throws -> LuaClosure {
+    public static func load(from source: [UInt8], named name: [UInt8]?, mode: LoadMode, environment env: LuaValue, in state: Lua) async throws -> LuaClosure {
+        return try await load(from: source, named: name, mode: mode, environment: env, in: state.luaState)
+    }
+
+    public static func load(using loader: @escaping () async throws -> [UInt8]?, named name: [UInt8]?, mode: LoadMode, environment env: LuaValue, in state: LuaState) async throws -> LuaClosure {
         if var start = try await loader() {
             while start.count < 4 {
                 if let c = try await loader() {
@@ -98,7 +106,7 @@ public class LuaLoad {
                         upvalues.append(LuaUpvalue(with: .nil))
                     }
                 }
-                return LuaClosure(for: res, with: upvalues)
+                return await state.closure(for: res, with: upvalues)
             } else {
                 if mode != .text && mode != .any {
                     throw Lua.LuaError.runtimeError(message: "attempt to load a text chunk")
@@ -111,11 +119,15 @@ public class LuaLoad {
                     }
                     return try await loader()
                 }, named: name ?? "?"))
-                return LuaClosure(for: fn, with: [LuaUpvalue(with: env)])
+                return await state.closure(for: fn, with: [LuaUpvalue(with: env)])
             }
         } else {
-            return try await load(from: "", named: name, mode: mode, environment: env)
+            return try await load(from: "", named: name, mode: mode, environment: env, in: state)
         }
+    }
+
+    public static func load(using loader: @escaping () async throws -> [UInt8]?, named name: [UInt8]?, mode: LoadMode, environment env: LuaValue, in state: Lua) async throws -> LuaClosure {
+        return try await load(using: loader, named: name, mode: mode, environment: env, in: state.luaState)
     }
 
     public static func test() -> LuaInterpretedFunction {

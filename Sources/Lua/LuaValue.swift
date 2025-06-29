@@ -4,9 +4,20 @@ public enum LuaValue: Hashable, Sendable {
     case number(Double)
     case string(LuaString)
     case function(LuaFunction)
-    case userdata(LuaUserdata)
+    case fulluserdata(LuaFullUserdata)
+    case lightuserdata(LuaLightUserdata)
     case thread(LuaThread)
     case table(LuaTable)
+
+    public static func userdata(_ ud: some LuaUserdata) -> LuaValue {
+        if let fud = ud as? LuaFullUserdata {
+            return .fulluserdata(fud)
+        } else if let lud = ud as? LuaLightUserdata {
+            return .lightuserdata(lud)
+        } else {
+            return .nil
+        }
+    }
 
     public static func object(_ obj: LuaObject) -> LuaValue {
         return .userdata(obj.userdata())
@@ -68,7 +79,7 @@ public enum LuaValue: Hashable, Sendable {
         return .userdata(val.userdata())
     }
 
-    public static func value(_ val: LuaUserdata) -> LuaValue {
+    public static func value(_ val: any LuaUserdata) -> LuaValue {
         return .userdata(val)
     }
 
@@ -105,7 +116,8 @@ public enum LuaValue: Hashable, Sendable {
     public func metatable(in state: LuaState) async -> LuaTable? {
         switch self {
             case .table(let tbl): return await tbl.metatable
-            case .userdata(let ud): return await ud.metatable
+            case .fulluserdata(let ud): return await ud.metatable
+            case .lightuserdata: return await state.lightuserdataMetatable
             case .nil: return await state.nilMetatable
             case .boolean: return await state.booleanMetatable
             case .number: return await state.numberMetatable
@@ -192,7 +204,7 @@ public enum LuaValue: Hashable, Sendable {
             case .number: return "number"
             case .string: return "string"
             case .function: return "function"
-            case .userdata: return "userdata"
+            case .lightuserdata, .fulluserdata: return "userdata"
             case .thread: return "thread"
             case .table: return "table"
         }
@@ -214,7 +226,8 @@ public enum LuaValue: Hashable, Sendable {
                         case .lua(let cl): return "function: \(String(UInt(bitPattern: Unmanaged.passUnretained(cl).toOpaque()), radix: 16))"
                         case .swift(let cl): return "function: \(String(UInt(bitPattern: Unmanaged.passUnretained(cl).toOpaque()), radix: 16))"
                     }
-                case .userdata(let val): return "\((try? await val.metatable?["__name"].checkString(at: 0)) ?? "userdata"): \(String(UInt(bitPattern: Unmanaged.passUnretained(val).toOpaque()), radix: 16))"
+                case .lightuserdata(let val): return "userdata: \(String(UInt(bitPattern: Unmanaged.passUnretained(val.object).toOpaque()), radix: 16))"
+                case .fulluserdata(let val): return "\((try? await val.metatable?["__name"].checkString(at: 0)) ?? "userdata"): \(String(UInt(bitPattern: Unmanaged.passUnretained(val).toOpaque()), radix: 16))"
                 case .thread(let val): return "thread: \(String(UInt(bitPattern: Unmanaged.passUnretained(val).toOpaque()), radix: 16))"
                 case .table(let val): return "\((try? await val.metatable?["__name"].checkString(at: 0)) ?? "table"): \(String(UInt(bitPattern: Unmanaged.passUnretained(val).toOpaque()), radix: 16))"
             }
@@ -237,7 +250,8 @@ public enum LuaValue: Hashable, Sendable {
                         case .lua(let cl): return "function: \(String(UInt(bitPattern: Unmanaged.passUnretained(cl).toOpaque()), radix: 16))"
                         case .swift(let cl): return "function: \(String(UInt(bitPattern: Unmanaged.passUnretained(cl).toOpaque()), radix: 16))"
                     }
-                case .userdata(let val): return "\((try? await val.metatable?["__name"].checkString(at: 0)) ?? "userdata"): \(String(UInt(bitPattern: Unmanaged.passUnretained(val).toOpaque()), radix: 16))"
+                case .lightuserdata(let val): return "userdata: \(String(UInt(bitPattern: Unmanaged.passUnretained(val.object).toOpaque()), radix: 16))"
+                case .fulluserdata(let val): return "\((try? await val.metatable?["__name"].checkString(at: 0)) ?? "userdata"): \(String(UInt(bitPattern: Unmanaged.passUnretained(val).toOpaque()), radix: 16))"
                 case .thread(let val): return "thread: \(String(UInt(bitPattern: Unmanaged.passUnretained(val).toOpaque()), radix: 16))"
                 case .table(let val): return "\((try? await val.metatable?["__name"].checkString(at: 0)) ?? "table"): \(String(UInt(bitPattern: Unmanaged.passUnretained(val).toOpaque()), radix: 16))"
             }
@@ -336,11 +350,13 @@ public enum LuaValue: Hashable, Sendable {
         throw Lua.argumentError(at: index, for: self, expected: "thread")
     }
 
-    public func checkUserdata(at index: Int, default defaultValue: LuaUserdata? = nil) throws -> LuaUserdata {
+    public func checkUserdata(at index: Int, default defaultValue: (any LuaUserdata)? = nil) throws -> any LuaUserdata {
         if defaultValue != nil && self == .nil {
             return defaultValue!
         }
-        if case let .userdata(val) = self {
+        if case let .lightuserdata(val) = self {
+            return val
+        } else if case let .fulluserdata(val) = self {
             return val
         }
         throw Lua.argumentError(at: index, for: self, expected: "userdata")
@@ -350,7 +366,9 @@ public enum LuaValue: Hashable, Sendable {
         if defaultValue != nil && self == .nil {
             return defaultValue!
         }
-        if case let .userdata(val) = self, let v = val.object as? T {
+        if case let .lightuserdata(val) = self, let v = val.object as? T {
+            return v
+        } else if case let .fulluserdata(val) = self, let v = val.object as? T {
             return v
         }
         throw Lua.argumentError(at: index, for: self, expected: String(reflecting: T.self))

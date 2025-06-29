@@ -159,36 +159,31 @@ public final class Lua: Sendable {
     }
 
     public func upvalue(in function: LuaFunction, index: Int) async -> (String?, LuaValue)? {
-        if case let .lua(cl) = function, index > 0 && index <= cl.upvalues.count {
-            return (cl.proto.upvalues[index-1].2, await cl.upvalues[index-1].value)
+        if case let .lua(cl) = function, let uv = await cl.upvalue(index)?.value {
+            return (cl.proto.upvalues[index-1].2, uv)
         }
         return nil
     }
 
     public func upvalue(in function: LuaFunction, index: Int, value: LuaValue) async -> String? {
-        if case let .lua(cl) = function, index > 0 && index <= cl.upvalues.count {
-            await cl.upvalues[index-1].set(value: value)
+        if case let .lua(cl) = function, let uv = await cl.upvalue(index) {
+            await uv.set(value: value)
             return cl.proto.upvalues[index-1].2 ?? ""
         }
         return nil
     }
 
-    public func upvalue(objectIn function: LuaFunction, index: Int) -> LuaUpvalue? {
-        if case let .lua(cl) = function, index > 0 && index <= cl.upvalues.count {
-            return cl.upvalues[index-1]
+    public func upvalue(objectIn function: LuaFunction, index: Int) async -> LuaUpvalue? {
+        if case let .lua(cl) = function {
+            return await cl.upvalue(index)
         }
         return nil
     }
 
-    public func upvalue(joinFrom fromFunction: LuaFunction, index fromIndex: Int, to toFunction: LuaFunction, index toIndex: Int) throws {
-        if case let .lua(cl1) = fromFunction,
-            fromIndex > 0 && fromIndex <= cl1.upvalues.count,
-            case let .lua(cl2) = toFunction,
-            toIndex > 0 && toIndex <= cl2.upvalues.count {
-            // TODO: fix this please!
-            //cl1.upvalues[fromIndex-1] = cl2.upvalues[toIndex-1]
-            //return
-            throw LuaError.internalError
+    public func upvalue(joinFrom fromFunction: LuaFunction, index fromIndex: Int, to toFunction: LuaFunction, index toIndex: Int) async throws {
+        if case let .lua(cl1) = fromFunction, case let .lua(cl2) = toFunction, let uv = await cl2.upvalue(toIndex) {
+            try await cl1.upvalue(fromIndex, value: uv)
+            return
         }
         throw LuaError.internalError
     }
@@ -215,5 +210,5 @@ public final class Lua: Sendable {
 public macro LuaObject() = #externalMacro(module: "LuaMacros", type: "LuaObjectMacro")
 
 public protocol LuaObject: Sendable {
-    func userdata() -> LuaUserdata
+    func userdata() -> any LuaUserdata
 }

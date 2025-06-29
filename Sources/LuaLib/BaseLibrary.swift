@@ -117,20 +117,22 @@ internal struct BaseLibrary: LuaLibrary {
         return [.nil]
     }
 
+    private static let __inext = LuaSwiftFunction {_state, _args in
+        if case let .number(i) = _args[2] {
+            let v = try await _args[1].index(.number(i+1), in: _state)
+            if v == .nil {
+                return []
+            }
+            return [.number(i+1), v]
+        } else {
+            return []
+        }
+    }
+
     public let ipairs = LuaSwiftFunction {state, args in
         if case let .table(tab) = args[1] {
             return [
-                .function(.swift(LuaSwiftFunction {_state, _args in
-                    if case let .number(i) = _args[2] {
-                        let v = try await args[1].index(.number(i+1), in: _state)
-                        if v == .nil {
-                            return []
-                        }
-                        return [.number(i+1), v]
-                    } else {
-                        return []
-                    }
-                })),
+                .function(.swift(BaseLibrary.__inext)),
                 .table(tab),
                 .number(0)
             ]
@@ -154,13 +156,13 @@ internal struct BaseLibrary: LuaLibrary {
         }
         do {
             switch args[1] {
-                case .string(let chunk): return [.function(.lua(try await LuaLoad.load(from: chunk.bytes, named: name, mode: mode, environment: args[4].orElse(.table(state.luaState.globalTable)))))]
+                case .string(let chunk): return [.function(.lua(try await LuaLoad.load(from: chunk.bytes, named: name, mode: mode, environment: args[4].orElse(.table(state.luaState.globalTable)), in: state)))]
                 case .function(let fn): return [.function(.lua(try await LuaLoad.load(using: {() -> [UInt8]? in
                         guard let v = try await fn.call(in: state.thread, with: []).first?.optional else {return nil}
                         guard case let .string(s) = v else {throw Lua.LuaError.runtimeError(message: "reader function must return a string")}
                         if s.string == "" {return nil}
                         return s.bytes
-                    }, named: name, mode: mode, environment: args[4].orElse(.table(state.luaState.globalTable)))))]
+                    }, named: name, mode: mode, environment: args[4].orElse(.table(state.luaState.globalTable)), in: state)))]
                 default: Swift.assert(false); return [] // should never happen
             }
         } catch let error as LuaParser.Error {

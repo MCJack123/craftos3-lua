@@ -6,7 +6,7 @@ internal final class DebugLibrary {
         while true {
             if let line = readLine(), line != "cont" {
                 do {
-                    let cl = try await LuaLoad.load(from: line, named: "=stdin", mode: .text, environment: .table(state.luaState.globalTable))
+                    let cl = try await LuaLoad.load(from: line, named: "=stdin", mode: .text, environment: .table(state.luaState.globalTable), in: state)
                     _ = try await LuaFunction.lua(cl).call(in: state.thread, with: [])
                 } catch let error as Lua.LuaError {
                     switch error {
@@ -211,7 +211,7 @@ internal final class DebugLibrary {
         return []
     }
 
-    public func getuservalue(value: LuaUserdata) async -> LuaValue {
+    public func getuservalue(value: any LuaUserdata) async -> LuaValue {
         return await value.uservalue // TODO
     }
 
@@ -261,7 +261,7 @@ internal final class DebugLibrary {
         return await state.upvalue(in: function, index: index, value: value)
     }
 
-    public func setuservalue(ud: LuaUserdata, value: LuaValue) async {
+    public func setuservalue(ud: any LuaUserdata, value: LuaValue) async {
         await ud.set(uservalue: value)
     }
 
@@ -305,14 +305,14 @@ internal final class DebugLibrary {
         return .string(.string(retval))
     }
 
-    public func upvalueid(_ state: Lua, function: LuaFunction, index: Int) async throws -> LuaUserdata {
-        if let uv = state.upvalue(objectIn: function, index: index) {
-            return LuaUserdata(for: uv)
+    public func upvalueid(_ state: Lua, function: LuaFunction, index: Int) async throws -> any LuaUserdata {
+        if let uv = await state.upvalue(objectIn: function, index: index) {
+            return LuaLightUserdata(for: uv)
         }
         throw await Lua.error(in: state, message: "invalid index")
     }
 
     public func upvaluejoin(_ state: Lua, f1: LuaFunction, n1: Int, f2: LuaFunction, n2: Int) async throws {
-        try state.upvalue(joinFrom: f1, index: n1, to: f2, index: n2)
+        try await state.upvalue(joinFrom: f1, index: n1, to: f2, index: n2)
     }
 }
