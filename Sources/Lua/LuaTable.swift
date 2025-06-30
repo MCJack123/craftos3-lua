@@ -1,3 +1,5 @@
+import BTreeModule
+
 public actor LuaTable: Hashable {
     public static func == (lhs: LuaTable, rhs: LuaTable) -> Bool {
         return lhs === rhs
@@ -108,6 +110,7 @@ public actor LuaTable: Hashable {
 
     private var hash = [MaybeWeakValue: MaybeWeakValue]()
     private var array = [MaybeWeakValue]() // TODO: resize array part
+    private var hashNext = BTree<Int, MaybeWeakValue>()
     private var weakKeys = false
     private var weakValues = false
     private var __mode = Mode.none
@@ -236,8 +239,14 @@ public actor LuaTable: Hashable {
             else {return true}
         }
         for (k, v) in hash {
-            self.hash[MaybeWeakValue(strongly: k)] = MaybeWeakValue(strongly: v)
+            let kk = MaybeWeakValue(strongly: k)
+            self.hash[kk] = MaybeWeakValue(strongly: v)
+            self.hashNext.insert((k.hashValue, kk))
         }
+    }
+
+    public init(from array: [LuaValue]) {
+        self.array = array.map {MaybeWeakValue(strongly: $0)}
     }
 
     private init(array: [MaybeWeakValue], hash: [MaybeWeakValue: MaybeWeakValue], metatable: LuaTable?, state: LuaState) {
@@ -257,6 +266,7 @@ public actor LuaTable: Hashable {
     #endif
 
     public func next(key: LuaValue) -> LuaValue {
+        // TODO: determine whether we need to check hash after getting a key from hashNext
         if key == .nil {
             if !array.isEmpty {
                 for i in 1...array.count {
@@ -265,30 +275,42 @@ public actor LuaTable: Hashable {
                     }
                 }
             }
-            if hash.isEmpty {
-                return .nil
+            if let k = hashNext.first, let idx = hash.index(forKey: k.1) {
+                return hash[idx].key.value
             } else {
-                return hash[hash.startIndex].key.value
+                return .nil
             }
         } else if case var .number(n) = key, Int(exactly: n) != nil && n > 0 && Int(n) <= array.count {
             while true {
                 if Int(n) == array.count {
-                    if hash.isEmpty {
-                        return .nil
+                    if let k = hashNext.first, let idx = hash.index(forKey: k.1) {
+                        return hash[idx].key.value
                     } else {
-                        return hash[hash.startIndex].key.value
+                        return .nil
                     }
                 } else if array[Int(n)].value != .nil {
                     return .number(n + 1)
                 }
                 n += 1
             }
-        } else if let idx = hash.index(forKey: MaybeWeakValue(strongly: key)) {
-            let next = hash.index(after: idx)
-            if next == hash.endIndex {return .nil}
-            return hash[next].key.value
+        } else if let kidx = hashNext.index(forKey: key.hashValue) {
+            let next = hashNext.index(after: kidx)
+            if next == hashNext.endIndex {
+                return .nil
+            } else if let idx = hash.index(forKey: hashNext[next].1) {
+                return hash[idx].key.value
+            } else {
+                return .nil
+            }
         } else {
-            return .nil // TODO: handle keys not in the table
+            let next = hashNext.index(forInserting: key.hashValue, at: .after)
+            if next == hashNext.endIndex {
+                return .nil
+            } else if let idx = hash.index(forKey: hashNext[next].1) {
+                return hash[idx].key.value
+            } else {
+                return .nil
+            }
         }
     }
 
@@ -304,9 +326,13 @@ public actor LuaTable: Hashable {
                     array[Int(n)-1] = MaybeWeakValue(value, isWeak: weakValues)
                 }
             } else if value != .nil {
-                hash[MaybeWeakValue(index, isWeak: weakKeys)] = MaybeWeakValue(value, isWeak: weakValues)
+                let k = MaybeWeakValue(index, isWeak: weakKeys)
+                hash[k] = MaybeWeakValue(value, isWeak: weakValues)
+                hashNext.insertOrReplace((k.hashValue, k))
             } else {
-                hash[MaybeWeakValue(strongly: index)] = nil
+                let k = MaybeWeakValue(strongly: index)
+                hash[k] = nil
+                hashNext.remove(k.hashValue)
             }
             if case let .string(str) = index {
                 if str.string == "__mode" {
@@ -345,10 +371,13 @@ public actor LuaTable: Hashable {
             return hash[MaybeWeakValue(strongly: .string(.string(index)))]?.value ?? .nil
         } set (value) {
             if weakKeys {return}
+            let k = MaybeWeakValue(strongly: .string(.string(index)))
             if value != .nil {
-                hash[MaybeWeakValue(strongly: .string(.string(index)))] = MaybeWeakValue(value, isWeak: weakValues)
+                hash[k] = MaybeWeakValue(value, isWeak: weakValues)
+                hashNext.insertOrReplace((k.hashValue, k))
             } else {
-                hash[MaybeWeakValue(strongly: .string(.string(index)))] = nil
+                hash[k] = nil
+                hashNext.remove(k.hashValue)
             }
             if index == "__mode" {
                 if case let .string(val) = value {
@@ -391,9 +420,13 @@ public actor LuaTable: Hashable {
             if index > 0 && index <= array.count {
                 array[index-1] = MaybeWeakValue(value, isWeak: weakValues)
             } else if value != .nil {
-                hash[MaybeWeakValue(strongly: .number(Double(index)))] = MaybeWeakValue(value, isWeak: weakValues)
+                let k = MaybeWeakValue(strongly: .number(Double(index)))
+                hash[k] = MaybeWeakValue(value, isWeak: weakValues)
+                hashNext.insertOrReplace((k.hashValue, k))
             } else {
-                hash[MaybeWeakValue(strongly: .number(Double(index)))] = nil
+                let k = MaybeWeakValue(strongly: .number(Double(index)))
+                hash[k] = nil
+                hashNext.remove(k.hashValue)
             }
         }
     }

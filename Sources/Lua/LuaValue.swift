@@ -103,6 +103,8 @@ public enum LuaValue: Hashable, Sendable {
         internal static let __le = LuaValue.string(.string("__le"))
         internal static let __gc = LuaValue.string(.string("__gc"))
         internal static let __mode = LuaValue.string(.string("__mode"))
+        internal static let __pairs = LuaValue.string(.string("__pairs"))
+        internal static let __ipairs = LuaValue.string(.string("__ipairs"))
         internal static let arithops: [LuaOpcode.Operation: LuaValue] = [
             .ADD: .string(.string("__add")),
             .SUB: .string(.string("__sub")),
@@ -195,6 +197,42 @@ public enum LuaValue: Hashable, Sendable {
 
     public func index(_ index: LuaValue, value: LuaValue, in state: Lua) async throws {
         return try await self.index(index, value: value, in: state.thread)
+    }
+
+    public func call(with args: [LuaValue], in state: LuaState) async throws -> [LuaValue] {
+        switch self {
+            case .function(let fn):
+                return try await fn.call(in: state.currentThread, with: args)
+            default:
+                if let meta = await self.metatable(in: state)?[.Constants.__call] {
+                    switch meta {
+                        case .function(let fn):
+                            var newargs = [self]
+                            newargs.append(contentsOf: args)
+                            return try await fn.call(in: state.currentThread, with: newargs)
+                        default: break
+                    }
+                }
+                throw await Lua.error(in: state.currentThread, message: "attempt to call a \(self.type) value")
+        }
+    }
+
+    public func call(with args: [LuaValue], in state: Lua) async throws -> [LuaValue] {
+        switch self {
+            case .function(let fn):
+                return try await fn.call(in: state.thread, with: args)
+            default:
+                if let meta = await self.metatable(in: state)?[.Constants.__call] {
+                    switch meta {
+                        case .function(let fn):
+                            var newargs = [self]
+                            newargs.append(contentsOf: args)
+                            return try await fn.call(in: state.thread, with: newargs)
+                        default: break
+                    }
+                }
+                throw await Lua.error(in: state, message: "attempt to call a \(self.type) value")
+        }
     }
 
     public var type: String {

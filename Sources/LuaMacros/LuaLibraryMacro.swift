@@ -149,7 +149,25 @@ public struct LuaLibraryMacro: ExtensionMacro {
                     trailingTrivia: Trivia(stringLiteral: "\n"))
             })
 
-        let objectExtension: DeclSyntax =
+        let objectExtension: DeclSyntax
+        if let setup = declaration.memberBlock.members
+            .compactMap({$0.decl.as(FunctionDeclSyntax.self)})
+            .first(where: {$0.name.text == "setup" && $0.modifiers.contains {$0.name.text == "private"}}) {
+            objectExtension =
+            """
+            extension \(type.trimmed): LuaLibrary {
+                public \(raw: declaration.is(ActorDeclSyntax.self) ? "nonisolated " : "")var name: String {return \(node.arguments!.as(LabeledExprListSyntax.self)!.first!.expression)}
+                public func table() async -> LuaTable {
+                    let table = LuaTable(from: [
+                        \(retval)
+                    ])
+                    \(raw: setup.signature.effectSpecifiers?.asyncSpecifier != nil ? "await " : "")setup(table: table)
+                    return table
+                }
+            }
+            """
+        } else {
+            objectExtension =
             """
             extension \(type.trimmed): LuaLibrary {
                 public \(raw: declaration.is(ActorDeclSyntax.self) ? "nonisolated " : "")var name: String {return \(node.arguments!.as(LabeledExprListSyntax.self)!.first!.expression)}
@@ -160,6 +178,7 @@ public struct LuaLibraryMacro: ExtensionMacro {
                 }
             }
             """
+        }
 
         guard let extensionDecl = objectExtension.as(ExtensionDeclSyntax.self) else {
             return []

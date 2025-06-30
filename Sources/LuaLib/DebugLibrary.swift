@@ -284,19 +284,23 @@ internal final class DebugLibrary {
         var level = try await args.checkInt(at: start + 1, default: 1)
         while true {
             if let info = await st.info(at: level, with: [.name, .source, .line]) {
-                let namewhat: String
-                switch info.nameWhat! {
-                    case .constant: namewhat = "constant"
-                    case .field: namewhat = "field"
-                    case .forIterator: namewhat = "for iterator"
-                    case .global: namewhat = "global"
-                    case .local: namewhat = "local"
-                    case .metamethod: namewhat = "metamethod"
-                    case .method: namewhat = "method"
-                    case .upvalue: namewhat = "upvalue"
-                    case .unknown: namewhat = "function"
+                if info.what == .main {
+                    retval += "  \(info.short_src!):\(info.currentLine!): in main chunk\n"
+                } else {
+                    let namewhat: String
+                    switch info.nameWhat! {
+                        case .constant: namewhat = "constant"
+                        case .field: namewhat = "field"
+                        case .forIterator: namewhat = "for iterator"
+                        case .global: namewhat = "global"
+                        case .local: namewhat = "local"
+                        case .metamethod: namewhat = "metamethod"
+                        case .method: namewhat = "method"
+                        case .upvalue: namewhat = "upvalue"
+                        case .unknown: namewhat = "function"
+                    }
+                    retval += "  \(info.short_src!):\(info.currentLine!): in \(namewhat) '\(info.name!)'\n"
                 }
-                retval += "  \(info.short_src!):\(info.currentLine!): in \(namewhat) '\(info.name!)'\n"
             } else {
                 break
             }

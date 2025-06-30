@@ -32,14 +32,17 @@ public extension LuaState {
         let _G = await BaseLibrary().table()
         await _G.set(index: "_G", value: .table(_G))
         await _G.set(index: "_VERSION", value: .string(.string("Lua 5.2")))
-        await _G.load(library: Bit32Library())
-        await _G.load(library: CoroutineLibrary())
-        await _G.load(library: DebugLibrary())
-        await _G.load(library: IOLibrary())
-        await _G.load(library: MathLibrary())
-        await _G.load(library: OSLibrary())
-        await _G.load(library: StringLibrary())
-        await _G.load(library: TableLibrary())
+        let package = PackageLibrary()
+        await _G.set(index: "require", value: .function(.swift(package._require)))
+        await _G.load(library: Bit32Library(), into: package)
+        await _G.load(library: CoroutineLibrary(), into: package)
+        await _G.load(library: DebugLibrary(), into: package)
+        await _G.load(library: IOLibrary(), into: package)
+        await _G.load(library: MathLibrary(), into: package)
+        await _G.load(library: OSLibrary(), into: package)
+        await _G.load(library: package, into: package)
+        await _G.load(library: StringLibrary(), into: package)
+        await _G.load(library: TableLibrary(), into: package)
         self.stringMetatable = await LuaTable(from: [
             .string(.string("__index")): _G["string"]
         ])
@@ -48,8 +51,12 @@ public extension LuaState {
 }
 
 public extension LuaTable {
-    func load(library: LuaLibrary, named name: String? = nil) async {
+    func load(library: LuaLibrary, named name: String? = nil, into package: PackageLibrary? = nil) async {
         let nam = name ?? library.name
-        self[nam] = .table(await library.table())
+        let t = LuaValue.table(await library.table())
+        self[nam] = t
+        if let package = package {
+            await package.add(t, named: nam)
+        }
     }
 }

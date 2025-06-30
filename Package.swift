@@ -28,13 +28,14 @@ let package = Package(
     dependencies: [
         .package(name: "LibC", path: "Packages/LibC"),
         .package(url: "https://github.com/apple/swift-syntax.git", from: "601.0.0"),
+        .package(url: "https://github.com/pbk20191/BTree.git", branch: "master"),
     ],
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
         // Targets can depend on other targets in this package and products from dependencies.
         .target(
             name: "Lua",
-            dependencies: ["LibC", "LuaMacros"]),
+            dependencies: ["LibC", "LuaMacros", .product(name: "BTreeModule", package: "BTree")]),
         .target(
             name: "LuaLib",
             dependencies: ["Lua", "LibC"]),

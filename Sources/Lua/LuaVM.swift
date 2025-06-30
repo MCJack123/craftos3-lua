@@ -334,15 +334,15 @@ public actor CallInfo {
                                     }
                                 }
                             case .FORPREP:
-                                guard case let .number(initial) = stack[a] else {throw await Lua.error(in: state, message: "'for' initial value must be a number")}
-                                guard case .number = stack[a + 1] else {throw await Lua.error(in: state, message: "'for' initial value must be a number")}
-                                guard case let .number(step) = stack[a + 2] else {throw await Lua.error(in: state, message: "'for' initial value must be a number")}
+                                guard let initial = stack[a].toNumber else {throw await Lua.error(in: state, message: "'for' initial value must be a number")}
+                                guard let _ = stack[a + 1].toNumber else {throw await Lua.error(in: state, message: "'for' initial value must be a number")}
+                                guard let step = stack[a + 2].toNumber else {throw await Lua.error(in: state, message: "'for' initial value must be a number")}
                                 stack[a] = .number(initial - step)
                                 pc += Int(sbx)
                             case .FORLOOP:
-                                guard case var .number(value) = stack[a] else {throw await Lua.error(in: state, message: "'for' initial value must be a number")}
-                                guard case let .number(limit) = stack[a + 1] else {throw await Lua.error(in: state, message: "'for' initial value must be a number")}
-                                guard case let .number(step) = stack[a + 2] else {throw await Lua.error(in: state, message: "'for' initial value must be a number")}
+                                guard var value = stack[a].toNumber else {throw await Lua.error(in: state, message: "'for' initial value must be a number")}
+                                guard let limit = stack[a + 1].toNumber else {throw await Lua.error(in: state, message: "'for' initial value must be a number")}
+                                guard let step = stack[a + 2].toNumber else {throw await Lua.error(in: state, message: "'for' initial value must be a number")}
                                 value += step
                                 stack[a] = .number(value)
                                 if step > 0 ? value <= limit : value >= limit {

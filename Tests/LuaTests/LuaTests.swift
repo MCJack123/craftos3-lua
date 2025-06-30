@@ -10,6 +10,7 @@ final class LuaTests: XCTestCase {
     // https://developer.apple.com/documentation/xctest/defining_test_cases_and_test_methods
 
     private func doTest(named name: String) async throws {
+        continueAfterFailure = true
         let state = await LuaState(withLibraries: true)
         await state.globalTable!.isolated {env in
             env["arg"] = .table(LuaTable())
@@ -96,11 +97,13 @@ final class LuaTests: XCTestCase {
         let state = await LuaState(withLibraries: true)
         let env = await state.globalTable!
         await env.load(library: TestLibrary())
+        await env.load(library: TestLibrarySetup())
         let cl = try await LuaLoad.load(from: """
             assert(test._VERSION == "1.0")
             assert(test.getValue() == "test")
             test.setValue("abcd")
             assert(test.getValue() == "abcd")
+            assert(test2.test == 2)
             print("LuaLibrary works OK")
             return true
             """, named: name, mode: .text, environment: .table(env), in: state)
@@ -198,5 +201,12 @@ public actor TestLibrary {
 
     public func setValue(_ val: String) {
         value = val
+    }
+}
+
+@LuaLibrary(named: "test2")
+public final class TestLibrarySetup {
+    private func setup(table: LuaTable) async {
+        await table.set(index: "test", value: .value(2))
     }
 }

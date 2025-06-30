@@ -130,14 +130,15 @@ internal struct BaseLibrary: LuaLibrary {
     }
 
     public let ipairs = LuaSwiftFunction {state, args in
-        if case let .table(tab) = args[1] {
-            return [
-                .function(.swift(BaseLibrary.__inext)),
-                .table(tab),
-                .number(0)
-            ]
+        let tab = try await args.checkTable(at: 1)
+        if let mt = await tab.metatable?["__ipairs"], case let .function(fn) = mt {
+            return try await fn.call(in: state.thread, with: [.table(tab)])
         }
-        throw await state.argumentError(at: 1, in: args, expected: "table")
+        return [
+            .function(.swift(BaseLibrary.__inext)),
+            .table(tab),
+            .number(0)
+        ]
     }
 
     public let load = LuaSwiftFunction {state, args in

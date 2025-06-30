@@ -27,10 +27,13 @@ internal struct TableLibrary: LuaLibrary {
                 pos = t.count + 1
                 val = args[2]
             }
+            if pos < 1 || pos > t.count + 1 {
+                throw await state.error("bad argument #2 to 'insert' (position out of bounds)")
+            }
             var v = t[pos]
-            var n = pos
+            var n = pos + 1
             while v != .nil {
-                let vv = t[n+1]
+                let vv = t[n]
                 t[n] = v
                 v = vv
                 n += 1
@@ -58,6 +61,9 @@ internal struct TableLibrary: LuaLibrary {
         let _t = try await args.checkTable(at: 1)
         return try await _t.isolated {t in
             var i = try await args.checkInt(at: 2, default: t.count)
+            if i < 1 && t.count > 0 {
+                throw await state.error("bad argument #2 to 'remove' (position out of bounds)")
+            }
             let v = t[i]
             while t[i] != .nil {
                 t[i] = t[i+1]
