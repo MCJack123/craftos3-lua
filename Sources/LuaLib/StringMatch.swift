@@ -15,7 +15,7 @@ private struct StringPointer: Comparable {
     }
 
     var first: Character? {
-        if index >= string.endIndex {
+        if index < string.startIndex || index >= string.endIndex {
             return nil
         }
         return Character(Unicode.Scalar(string[index]))

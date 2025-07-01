@@ -28,18 +28,21 @@ extension Collection where Element: Equatable {
 internal struct StringLibrary: LuaLibrary {
     public let name = "string"
 
-    private static func index(string str: [UInt8], at index: Int) -> [UInt8].Index? {
-        if index >= 1 {return str.index(str.startIndex, offsetBy: index - 1, limitedBy: str.index(before: str.endIndex))}
-        else if index < 0 && -index <= str.count {return str.index(str.startIndex, offsetBy: str.count + index)}
+    private static func index(string str: [UInt8], at index: Int, end: Bool) -> [UInt8].Index? {
+        if index >= 1 {return str.index(str.startIndex, offsetBy: index - (end ? 0 : 1), limitedBy: end ? str.endIndex : str.index(before: str.endIndex)) ?? (end ? str.endIndex : nil)}
+        else if index < 0 {
+            if -index <= str.count {return str.index(str.startIndex, offsetBy: str.count + index + (end ? 1 : 0))}
+            else {return str.startIndex}
+        }
         else {return nil}
     }
 
     public let byte = LuaSwiftFunction {state, args in
         let str = try await args.checkBytes(at: 1)
         let _start = try await args.checkInt(at: 2, default: 1)
-        guard let start = index(string: str, at: _start) else {return []}
-        let end = index(string: str, at: try await args.checkInt(at: 3, default: _start)) ?? str.index(before: str.endIndex)
-        return str.map {LuaValue.number(Double($0))}
+        guard let start = index(string: str, at: _start, end: false) else {return []}
+        guard let end = index(string: str, at: try await args.checkInt(at: 3, default: _start), end: true) else {return []}
+        return str[start..<end].map {LuaValue.number(Double($0))}
     }
 
     public let char = LuaSwiftFunction {state, args in
@@ -61,18 +64,22 @@ internal struct StringLibrary: LuaLibrary {
     public let find = LuaSwiftFunction {state, args in
         let str = try await args.checkBytes(at: 1)
         let pat = try await args.checkBytes(at: 2)
-        let idx = try await args.checkInt(at: 3, default: 1)
+        guard let idx = index(string: str, at: try await args.checkInt(at: 3, default: 1), end: false) else {return []}
+        if pat.isEmpty && idx == str.startIndex {
+            return [.number(1), .number(1)]
+        }
+        if idx >= str.endIndex {return []}
         if args[4].toBool || !pat.contains(where: {StringLibrary.magicCharacters.contains($0)}) {
-            if let range = str.firstRange_(of: pat) {
+            if let range = str[idx...].firstRange_(of: pat) {
                 return [
                     .number(Double(str.distance(from: str.startIndex, to: range.lowerBound) + 1)),
-                    .number(Double(str.distance(from: str.startIndex, to: range.upperBound) + 1)),
+                    .number(Double(str.distance(from: str.startIndex, to: range.upperBound))),
                 ]
             } else {
                 return []
             }
         }
-        if let res = try StringMatch.find(in: str, for: pat, from: idx - 1) {
+        if let res = try StringMatch.find(in: str, for: pat, from: idx) {
             var v = res.2
             v.insert(.number(Double(res.1 + 1)), at: 0)
             v.insert(.number(Double(res.0 + 1)), at: 0)
@@ -165,10 +172,10 @@ internal struct StringLibrary: LuaLibrary {
 
     public let sub = LuaSwiftFunction {state, args in
         let s = try await args.checkBytes(at: 1)
-        guard let i = index(string: s, at: try await args.checkInt(at: 2)) else {return [.string(.string(""))]}
-        let j = index(string: s, at: try await args.checkInt(at: 3, default: -1)) ?? s.index(before: s.endIndex)
+        guard let i = index(string: s, at: try await args.checkInt(at: 2), end: false) else {return [.string(.string(""))]}
+        let j = index(string: s, at: try await args.checkInt(at: 3, default: -1), end: true) ?? s.endIndex
         if j < i {return [.string(.string(""))]}
-        return [.string(.substring(s[i...j]))]
+        return [.string(.substring(s[i..<j]))]
     }
 
     public let upper = LuaSwiftFunction {state, args in

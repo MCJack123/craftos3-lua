@@ -16,7 +16,7 @@ final class LuaTests: XCTestCase {
             env["arg"] = .table(LuaTable())
             env["_soft"] = .boolean(true)
             env["_port"] = .boolean(true)
-            env["_no32"] = .boolean(false)
+            env["_no32"] = .boolean(true)
             env["_nomsg"] = .boolean(false)
             env["_noposix"] = .boolean(false)
             env["_nolonglong"] = .boolean(false)
