@@ -35,12 +35,15 @@ internal func convert(type: TypeSyntax, atParameter index: Int, defaultValue: In
     if let typ = type.as(SomeOrAnyTypeSyntax.self), let ityp = typ.constraint.as(IdentifierTypeSyntax.self), ityp.name.text == "LuaUserdata" {
         return "let _\(raw: index) = \(raw: optional ? "try?" : "try") await args.checkUserdata(at: \(raw: index))\n"
     }
+    if let typ = type.as(ArrayTypeSyntax.self), let el = typ.element.as(IdentifierTypeSyntax.self), el.name.text == "UInt8" {
+        return "let _\(raw: index) = \(raw: optional ? "try?" : "try") await args.checkBytes(at: \(raw: index))\n"
+    }
     if let typ = type.as(IdentifierTypeSyntax.self) {
         switch typ.name.text {
             case "LuaValue":
                 return "let _\(raw: index) = args[\(raw: index)]\(raw: optional ? ".optional" : "")"
             case "Bool":
-                return "let _\(raw: index) = \(raw: optional ? "try?" : "try") await args.checkBool(at: \(raw: index))\n"
+                return "let _\(raw: index) = \(raw: optional ? "try?" : "try") await args.checkBoolean(at: \(raw: index))\n"
             case "Int":
                 return "let _\(raw: index) = \(raw: optional ? "try?" : "try") await args.checkInt(at: \(raw: index))\n"
             case "Double":
@@ -76,28 +79,30 @@ internal func convert(typeForReturnValue type: TypeSyntax, context: some MacroEx
                         case "LuaValue":
                             items.append(ArrayElementSyntax(expression: ExprSyntax("res.\(raw: i) ?? .nil, ")))
                         case "Bool":
-                            items.append(ArrayElementSyntax(expression: ExprSyntax("res != nil ? .boolean(res.\(raw: i)!) : .nil, ")))
+                            items.append(ArrayElementSyntax(expression: ExprSyntax("res.\(raw: i) != nil ? .boolean(res.\(raw: i)!) : .nil, ")))
                         case "Int":
-                            items.append(ArrayElementSyntax(expression: ExprSyntax("res != nil ? .number(Double(res.\(raw: i)!)) : .nil, ")))
+                            items.append(ArrayElementSyntax(expression: ExprSyntax("res.\(raw: i) != nil ? .number(Double(res.\(raw: i)!)) : .nil, ")))
                         case "Double":
-                            items.append(ArrayElementSyntax(expression: ExprSyntax("res != nil ? .number(res.\(raw: i)!) : .nil, ")))
+                            items.append(ArrayElementSyntax(expression: ExprSyntax("res.\(raw: i) != nil ? .number(res.\(raw: i)!) : .nil, ")))
                         case "String":
-                            items.append(ArrayElementSyntax(expression: ExprSyntax("res != nil ? .string(.string(res.\(raw: i)!)) : .nil, ")))
+                            items.append(ArrayElementSyntax(expression: ExprSyntax("res.\(raw: i) != nil ? .string(.string(res.\(raw: i)!)) : .nil, ")))
                         case "LuaTable":
-                            items.append(ArrayElementSyntax(expression: ExprSyntax("res != nil ? .table(res.\(raw: i)!) : .nil, ")))
+                            items.append(ArrayElementSyntax(expression: ExprSyntax("res.\(raw: i) != nil ? .table(res.\(raw: i)!) : .nil, ")))
                         case "LuaFunction":
-                            items.append(ArrayElementSyntax(expression: ExprSyntax("res != nil ? .function(res.\(raw: i)!) : .nil, ")))
+                            items.append(ArrayElementSyntax(expression: ExprSyntax("res.\(raw: i) != nil ? .function(res.\(raw: i)!) : .nil, ")))
                         case "LuaThread":
-                            items.append(ArrayElementSyntax(expression: ExprSyntax("res != nil ? .thread(res.\(raw: i)!) : .nil, ")))
+                            items.append(ArrayElementSyntax(expression: ExprSyntax("res.\(raw: i) != nil ? .thread(res.\(raw: i)!) : .nil, ")))
                         case "LuaUserdata":
-                            items.append(ArrayElementSyntax(expression: ExprSyntax("res != nil ? .userdata(res.\(raw: i)!) : .nil, ")))
+                            items.append(ArrayElementSyntax(expression: ExprSyntax("res.\(raw: i) != nil ? .userdata(res.\(raw: i)!) : .nil, ")))
                         default:
                             let e = LuaMacroError.typeError(node: type, text: typ.name.text)
                             context.addDiagnostics(from: e, node: type)
                             throw e
                     }
                 } else if let typ = typ.wrappedType.as(SomeOrAnyTypeSyntax.self), let ityp = typ.constraint.as(IdentifierTypeSyntax.self), ityp.name.text == "LuaUserdata" {
-                    items.append(ArrayElementSyntax(expression: ExprSyntax(".userdata(res.\(raw: i)), ")))
+                    items.append(ArrayElementSyntax(expression: ExprSyntax("res.\(raw: i) != nil ? .userdata(res.\(raw: i)!) : .nil, ")))
+                } else if let typ = t.type.as(ArrayTypeSyntax.self), let ityp = typ.element.as(IdentifierTypeSyntax.self), ityp.name.text == "UInt8" {
+                    items.append(ArrayElementSyntax(expression: ExprSyntax("res.\(raw: i) != nil ? .string(.string(res.\(raw: i)!)) : .nil, ")))
                 } else {
                     let e = LuaMacroError.typeError(node: type, text: t.trimmedDescription)
                     context.addDiagnostics(from: e, node: type)
@@ -130,6 +135,8 @@ internal func convert(typeForReturnValue type: TypeSyntax, context: some MacroEx
                 }
             } else if let typ = t.type.as(SomeOrAnyTypeSyntax.self), let ityp = typ.constraint.as(IdentifierTypeSyntax.self), ityp.name.text == "LuaUserdata" {
                 items.append(ArrayElementSyntax(expression: ExprSyntax(".userdata(res.\(raw: i)), ")))
+            } else if let typ = t.type.as(ArrayTypeSyntax.self), let ityp = typ.element.as(IdentifierTypeSyntax.self), ityp.name.text == "UInt8" {
+                items.append(ArrayElementSyntax(expression: ExprSyntax(".string(.string(res.\(raw: i))), ")))
             } else {
                 let e = LuaMacroError.typeError(node: type, text: t.trimmedDescription)
                 context.addDiagnostics(from: e, node: type)
@@ -166,6 +173,8 @@ internal func convert(typeForReturnValue type: TypeSyntax, context: some MacroEx
             }
         } else if let typ = typ.wrappedType.as(SomeOrAnyTypeSyntax.self), let ityp = typ.constraint.as(IdentifierTypeSyntax.self), ityp.name.text == "LuaUserdata" {
             return "[res != nil ? .userdata(res!) : .nil]"
+        } else if let typ = typ.wrappedType.as(ArrayTypeSyntax.self), let ityp = typ.element.as(IdentifierTypeSyntax.self), ityp.name.text == "UInt8" {
+            return "[res != nil ? .string(.string(res!)) : .nil]"
         } else {
             let e = LuaMacroError.typeError(node: type, text: type.trimmedDescription)
             context.addDiagnostics(from: e, node: type)
@@ -201,8 +210,12 @@ internal func convert(typeForReturnValue type: TypeSyntax, context: some MacroEx
     if let typ = type.as(SomeOrAnyTypeSyntax.self), let ityp = typ.constraint.as(IdentifierTypeSyntax.self), ityp.name.text == "LuaUserdata" {
         return "[.userdata(res)]"
     }
-    if let typ = type.as(ArrayTypeSyntax.self), let typ2 = typ.element.as(IdentifierTypeSyntax.self), typ2.name.text == "LuaValue" {
-        return "res"
+    if let typ = type.as(ArrayTypeSyntax.self), let typ2 = typ.element.as(IdentifierTypeSyntax.self) {
+        if typ2.name.text == "LuaValue" {
+            return "res"
+        } else if typ2.name.text == "UInt8" {
+            return "[.string(.string(res))]"
+        }
     }
     let e = LuaMacroError.typeError(node: type, text: type.trimmedDescription)
     context.addDiagnostics(from: e, node: type)

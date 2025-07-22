@@ -146,7 +146,9 @@ internal struct StringLibrary: LuaLibrary {
     public let match = LuaSwiftFunction {state, args in
         let str = try await args.checkBytes(at: 1)
         let pat = try await args.checkBytes(at: 2)
-        let idx = try await args.checkInt(at: 3, default: 1)
+        guard let idx = index(string: str, at: try await args.checkInt(at: 3, default: 1), end: false) else {
+            throw await state.error("bad argument #3 (index out of range)")
+        }
         return try StringMatch.match(in: str, for: pat, from: idx)
     }
 

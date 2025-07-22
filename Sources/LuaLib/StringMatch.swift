@@ -454,11 +454,13 @@ internal class StringMatch {
             while src < ms.src_end {
                 ms.captures = []
                 if let e = try ms.match(src, pp) {
-                    src = e
+                    var newstart = e
                     if e == src {
-                        _=src.next()
+                        _=newstart.next()
                     }
-                    return try ms.push_captures(src, e)
+                    let oldsrc = src
+                    src = newstart
+                    return try ms.push_captures(oldsrc, e)
                 }
                 _=src.next()
             }

@@ -326,7 +326,7 @@ internal class LuaCode {
         }
 
         internal func prefixexp(_ expr: LuaParser.PrefixExpression, to idx: Int, results: Int = 1) {
-            allocate(slot: idx + results - 1)
+            if results > 0 {allocate(slot: idx + results - 1)}
             switch expr {
                 case .name(let name):
                     let (type, vidx) = variable(named: name)
@@ -389,6 +389,7 @@ internal class LuaCode {
                     }
                     _ = fn.add(opcode: .iABC(.CALL, UInt8(idx), UInt16(vararg ? 0 : args.count + 1), UInt16(results + 1)))
                 case .callSelf(let pexp, let name, let args):
+                    allocate(slot: idx + 1)
                     prefixexp(pexp, to: idx)
                     _ = fn.add(opcode: .iABC(.SELF, UInt8(idx), UInt16(idx), rk(for: .string(.string(name)), at: idx + 1)))
                     var vararg = false
@@ -744,6 +745,7 @@ internal class LuaCode {
                 }
                 return
             }
+            var localsToSet = [(Int, LocalInfo)]()
             for (i, v) in names.enumerated() {
                 if i == values.count - 1 && names.count > values.count {
                     let pc = fn.top
@@ -758,17 +760,20 @@ internal class LuaCode {
                 }
                 let idx: Int
                 let pc = fn.top
-                if let loc = locals[v] {
+                /*if let loc = locals[v] {
                     idx = loc.0
                     insert(expression: values[i], to: idx)
-                } else {
+                } else*/ do {
                     idx = level
                     expression(values[i], to: level)
                     level += 1
                 }
                 let info = LocalInfo(v, pc)
-                locals[v] = (idx, info)
-                fn.localinfo.append(info)
+                localsToSet.append((idx, info))
+            }
+            for local in localsToSet {
+                locals[local.1.name] = local
+                fn.localinfo.append(local.1)
             }
             if names.count < values.count {
                 for i in names.count..<values.count {
@@ -893,6 +898,7 @@ internal class LuaCode {
             if case let .binop(oper, left, right) = expr {
                 switch oper {
                     case .eq, .ne, .gt, .lt, .ge, .le:
+                        whileStart = fn.top
                         let lidx = rk(for: left, at: level)
                         let ridx = rk(for: right, at: level + 1)
                         let flip: Bool, op: LuaOpcode.Operation, a: UInt8
@@ -905,7 +911,7 @@ internal class LuaCode {
                             case .gt: op = .LT; flip = true;  a = 0
                             default: assert(false); return Block(in: self)
                         }
-                        whileStart = fn.add(opcode: .iABC(op, a, flip ? ridx : lidx, flip ? lidx : ridx)) - 1
+                        _ = fn.add(opcode: .iABC(op, a, flip ? ridx : lidx, flip ? lidx : ridx)) - 1
                         start = fn.add(opcode: .iAsBx(.JMP, 0, 0)) - 1
                         state = .while
                         childBlock = Block(in: self)
