@@ -40,14 +40,13 @@ public actor LuaThread: Hashable {
     /// - Parameter args: Any arguments to pass as return values to the awaited `resume` call.
     /// - Returns: The arguments passed to the next `resume` call.
     public static func yield(in state: LuaState, with args: [LuaValue] = [LuaValue]()) async throws -> [LuaValue] {
-        unowned let coro = try await state.assertThread()
-        if await coro.state != .running {
-            throw CoroutineError.noCoroutine
-        }
-        return try await coro.yieldIsolated(with: args)
+        return try await state.assertThread().yieldIsolated(with: args)
     }
 
     private func yieldIsolated(with args: [LuaValue]) async throws -> [LuaValue] {
+        if state != .running {
+            throw CoroutineError.noCoroutine
+        }
         state = .suspended
         return try await withCheckedThrowingContinuation {continuation in
             let c = self.continuation!
@@ -73,6 +72,8 @@ public actor LuaThread: Hashable {
     /// The current state of the coroutine.
     public private(set) var state: State = .suspended
 
+    // TODO: fix reference cycles in task
+
     private func initIsolated(for body: LuaFunction) async throws {
         let args = try await withCheckedThrowingContinuation {continuation in
             self.continuation = continuation
@@ -81,9 +82,11 @@ public actor LuaThread: Hashable {
             let res = try await body.call(in: self, with: args)
             self.state = .dead
             self.continuation.resume(returning: res)
+            self.continuation = nil
         } catch {
             self.state = .dead
             self.continuation.resume(throwing: error)
+            self.continuation = nil
         }
     }
 
@@ -95,14 +98,18 @@ public actor LuaThread: Hashable {
             try await body()
             self.state = .dead
             self.continuation.resume(returning: [])
+            self.continuation = nil
         } catch {
             self.state = .dead
             self.continuation.resume(throwing: error)
+            self.continuation = nil
         }
     }
 
     internal func set(state: State) {
-        self.state = state
+        if self.state != .dead {
+            self.state = state
+        }
     }
 
     /// Creates a new coroutine around a Lua function.
@@ -161,13 +168,18 @@ public actor LuaThread: Hashable {
         }
         self.state = .running
         let old = await state.swap(thread: self, isResuming: true)
-        let res = try await withCheckedThrowingContinuation {nextContinuation in
-            let c = continuation!
-            continuation = nextContinuation
-            c.resume(returning: args)
+        do {
+            let res = try await withCheckedThrowingContinuation {nextContinuation in
+                let c = continuation!
+                continuation = nextContinuation
+                c.resume(returning: args)
+            }
+            _ = await state.swap(thread: old, isResuming: false)
+            return res
+        } catch {
+            _ = await state.swap(thread: old, isResuming: false)
+            throw error
         }
-        _ = await state.swap(thread: old, isResuming: false)
-        return res
     }
 
     public func resume(in state: Lua, with args: [LuaValue] = [LuaValue]()) async throws -> [LuaValue] {
@@ -454,6 +466,8 @@ public actor LuaThread: Hashable {
         let top = callStack.count
         do {
             return try await LuaVM.execute(closure: cl, with: args, numResults: nil, state: self)
+        } catch LuaThread.CoroutineError.cancel {
+            throw LuaThread.CoroutineError.cancel
         } catch let error {
             callStack.removeLast(callStack.count - top)
             throw error

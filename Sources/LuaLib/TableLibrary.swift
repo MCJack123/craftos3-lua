@@ -10,7 +10,7 @@ internal struct TableLibrary: LuaLibrary {
         let j = try await args.checkInt(at: 4, default: t.count)
         var res = [String]()
         for n in i...j {
-            await res.append(args[n].toString)
+            await res.append(t[n].toString)
         }
         return [.string(.string(res.joined(separator: sep)))]
     }

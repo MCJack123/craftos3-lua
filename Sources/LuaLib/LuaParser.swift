@@ -221,7 +221,7 @@ internal struct LuaParser {
                                 if case let .operator(op, _) = tok, op == .comma {}
                                 else if case let .keyword(kw, _) = tok, kw == .in {}
                                 else {
-                                    throw Error.syntaxError(message: "'-' or 'in' expected", token: tok)
+                                    throw Error.syntaxError(message: "'=' or 'in' expected", token: tok)
                                 }
                                 saving = false
                                 try await next()
