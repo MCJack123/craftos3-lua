@@ -4,10 +4,10 @@ import LibC
 fileprivate struct JavaRandomNumberGenerator: RandomNumberGenerator {
     private var state = 0
     public mutating func seed(_ val: Int) {
-        state = (val ^ 0x5DEECE66D) & 0xFFFFFFFFFFFF
+        state = (val ^ 0x5DEECE66D &+ 0xB) & 0xFFFFFFFFFFFF
     }
     public mutating func next() -> UInt64 {
-        state = (state * 0x5DEECE66D) & 0xFFFFFFFFFFFF
+        state = (state &* 0x5DEECE66D &+ 0xB) & 0xFFFFFFFFFFFF
         return UInt64(state) << 16
     }
 }

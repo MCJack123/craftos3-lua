@@ -8,6 +8,9 @@ internal struct TableLibrary: LuaLibrary {
         let sep = try await args.checkString(at: 2, default: "")
         let i = try await args.checkInt(at: 3, default: 1)
         let j = try await args.checkInt(at: 4, default: t.count)
+        if i > j {
+            return [.string(.string(""))]
+        }
         var res = [String]()
         for n in i...j {
             await res.append(t[n].toString)
@@ -97,7 +100,7 @@ internal struct TableLibrary: LuaLibrary {
                 // TODO
                 return false*/
             } else {
-                throw Lua.LuaError.runtimeError(message: "attempt to compare two ? values")
+                throw Lua.LuaError.runtimeError(message: "attempt to compare two \(a.type) values")
             }
         }
         let arr_ = arr

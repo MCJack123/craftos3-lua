@@ -1,4 +1,4 @@
-public enum LuaValue: Hashable, Sendable {
+public enum LuaValue: Hashable, Sendable, CustomDebugStringConvertible {
     case `nil`
     case boolean(Bool)
     case number(Double)
@@ -423,5 +423,27 @@ public enum LuaValue: Hashable, Sendable {
     public var optional: LuaValue? {
         if self == .nil {return nil}
         return self
+    }
+
+    public var debugDescription: String {
+        switch self {
+            case .nil: return "nil"
+            case .boolean(let val): return val ? "true" : "false"
+            case .number(let val):
+                if let i = Int(exactly: val) {
+                    return String(i)
+                }
+                return String(val)
+            case .string(let val): return val.string
+            case .function(let val):
+                switch val {
+                    case .lua(let cl): return "function: \(String(UInt(bitPattern: Unmanaged.passUnretained(cl).toOpaque()), radix: 16))"
+                    case .swift(let cl): return "function: \(String(UInt(bitPattern: Unmanaged.passUnretained(cl).toOpaque()), radix: 16))"
+                }
+            case .lightuserdata(let val): return "userdata: \(String(UInt(bitPattern: Unmanaged.passUnretained(val.object).toOpaque()), radix: 16))"
+            case .fulluserdata(let val): return "userdata: \(String(UInt(bitPattern: Unmanaged.passUnretained(val).toOpaque()), radix: 16))"
+            case .thread(let val): return "thread: \(String(UInt(bitPattern: Unmanaged.passUnretained(val).toOpaque()), radix: 16))"
+            case .table(let val): return "table: \(String(UInt(bitPattern: Unmanaged.passUnretained(val).toOpaque()), radix: 16))"
+        }
     }
 }

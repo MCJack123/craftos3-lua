@@ -60,7 +60,7 @@ private enum DumpValue {
     }
 }
 
-public final class LuaInterpretedFunction: Hashable, Sendable {
+public final class LuaInterpretedFunction: Hashable, Sendable, CustomDebugStringConvertible {
     internal let opcodes: [LuaOpcode]
     internal let constants: [LuaValue]
     internal let prototypes: [LuaInterpretedFunction]
@@ -250,5 +250,9 @@ public final class LuaInterpretedFunction: Hashable, Sendable {
 
     public func hash(into hasher: inout Hasher) {
         hasher.combine(Unmanaged.passUnretained(self).toOpaque())
+    }
+
+    public var debugDescription: String {
+        return "\(name.string):\(lineDefined)"
     }
 }

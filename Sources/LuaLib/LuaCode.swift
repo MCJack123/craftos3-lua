@@ -311,11 +311,11 @@ internal class LuaCode {
                         return UInt16(idx)
                     case .global:
                         allocate(slot: idx)
-                        _ = fn.add(opcode: .iABC(.GETTABUP, UInt8(idx), UInt16(k), UInt16(0x100 | fn.constant(for: .string(.string(name))))))
+                        _ = fn.add(opcode: .iABC(.GETTABUP, UInt8(idx), UInt16(k), rk(for: .string(.string(name)), at: idx)))
                         return UInt16(idx)
                     case .globalLocal:
                         allocate(slot: idx)
-                        _ = fn.add(opcode: .iABC(.GETTABLE, UInt8(idx), UInt16(k), UInt16(0x100 | fn.constant(for: .string(.string(name))))))
+                        _ = fn.add(opcode: .iABC(.GETTABLE, UInt8(idx), UInt16(k), rk(for: .string(.string(name)), at: idx)))
                         return UInt16(idx)
                 }
             } else {
@@ -359,10 +359,10 @@ internal class LuaCode {
                             case .upvalue: _ = fn.add(opcode: .iABC(.GETTABUP, UInt8(idx), UInt16(vidx), rk(for: .string(.string(name)), at: idx)))
                             case .global:
                                 _ = fn.add(opcode: .iABC(.GETTABUP, UInt8(idx), UInt16(vidx), rk(for: .string(.string(vname)), at: idx)))
-                                _ = fn.add(opcode: .iABC(.GETTABLE, UInt8(idx), UInt16(idx), rk(for: .string(.string(name)), at: idx)))
+                                _ = fn.add(opcode: .iABC(.GETTABLE, UInt8(idx), UInt16(idx), rk(for: .string(.string(name)), at: idx + 1)))
                             case .globalLocal:
                                 _ = fn.add(opcode: .iABC(.GETTABLE, UInt8(idx), UInt16(vidx), rk(for: .string(.string(vname)), at: idx)))
-                                _ = fn.add(opcode: .iABC(.GETTABLE, UInt8(idx), UInt16(idx), rk(for: .string(.string(name)), at: idx)))
+                                _ = fn.add(opcode: .iABC(.GETTABLE, UInt8(idx), UInt16(idx), rk(for: .string(.string(name)), at: idx + 1)))
                         }
                     } else {
                         prefixexp(pexp, to: idx)
