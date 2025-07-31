@@ -171,7 +171,7 @@ internal class LuaCode {
             } else if let env = upvalues["_ENV"] {
                 return (.global, env.0)
             } else {
-                assert(false, "Internal parser error: Global variable requested, but no environment was provided")
+                fatalError("Internal parser error: Global variable requested, but no environment was provided")
             }
         }
 

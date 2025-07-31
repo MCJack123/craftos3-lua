@@ -102,8 +102,26 @@ public actor LuaState {
     public var globalTable: LuaTable!
     public var registry: LuaTable!
     private var closures = AsyncSet<LuaClosure>()
+    private let ownedExecutor: (any SerialExecutor)?
+    private let executor: UnownedSerialExecutor
+    private let executorWrapper: ExecutorWrapper?
 
-    public init() async {
+    private actor ExecutorWrapper {}
+
+    public nonisolated var unownedExecutor: UnownedSerialExecutor {
+        return executor
+    }
+
+    public init(on executor: (any SerialExecutor)? = nil) async {
+        if let executor = executor {
+            ownedExecutor = executor
+            executorWrapper = nil
+            self.executor = executor.asUnownedSerialExecutor()
+        } else {
+            ownedExecutor = nil
+            executorWrapper = ExecutorWrapper()
+            self.executor = executorWrapper!.unownedExecutor
+        }
         registry = LuaTable(state: self)
         currentThread = LuaThread(in: self)
         globalTable = LuaTable(state: self)

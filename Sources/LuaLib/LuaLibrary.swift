@@ -27,8 +27,8 @@ public extension LuaLibrary {
 public macro LuaLibrary(named: String) = #externalMacro(module: "LuaMacros", type: "LuaLibraryMacro")
 
 public extension LuaState {
-    init(withLibraries: Bool) async {
-        await self.init()
+    init(withLibraries: Bool, on executor: (any SerialExecutor)? = nil) async {
+        await self.init(on: executor)
         let _G = await BaseLibrary().table()
         await _G.set(index: "_G", value: .table(_G))
         await _G.set(index: "_VERSION", value: .string(.string("Lua 5.2")))

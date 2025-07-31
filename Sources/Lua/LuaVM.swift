@@ -15,8 +15,14 @@ public actor CallInfo {
     internal var top: Int = 0
     internal var vararg: [LuaValue]? = nil
     internal var openUpvalues = [Int: LuaUpvalue]()
+    internal let state: LuaThread
 
-    internal init(for cl: LuaFunction, numResults nRes: Int?, stackSize: Int = 0) {
+    public nonisolated var unownedExecutor: UnownedSerialExecutor {
+        return state.unownedExecutor
+    }
+
+    internal init(in thread: LuaThread, for cl: LuaFunction, numResults nRes: Int?, stackSize: Int = 0) {
+        state = thread
         function = cl
         numResults = nRes
         stack = [LuaValue](repeating: .nil, count: stackSize)
@@ -36,13 +42,14 @@ public actor CallInfo {
         }
     }
 
-    internal func execute(at pc: inout Int, in state: LuaThread, nexec: inout Int) async throws -> ([LuaValue]?, CallInfo?) {
+    internal func execute(at pc: inout Int, nexec: inout Int) async throws -> ([LuaValue]?, CallInfo?) {
         if case let .lua(cl) = function {
             //print("Entering function \(cl) [\(nexec)]")
             let insts = cl.proto.opcodes
             let constants = cl.proto.constants
             oploop: while true {
-                try await state.processHooks(at: pc, in: cl, savedpc: savedpc)
+                // TODO: check hook state without await
+                //try await state.processHooks(at: pc, in: cl, savedpc: savedpc)
                 let inst = insts[pc]
                 savedpc = pc
                 //print(cl.proto.lineinfo[pc], pc + 1, inst)
@@ -101,7 +108,47 @@ public actor CallInfo {
                                 stack[a] = try await t.index(rkc, in: state)
                                 stack[a+1] = t
                             case .ADD, .SUB, .MUL, .DIV, .MOD, .POW:
-                                stack[a] = try await LuaVM.arith(op: op, rkb, rkc, state: state)
+                                arith: repeat {
+                                    let an = rkb.toNumber
+                                    let bn = rkc.toNumber
+                                    if let an = an, let bn = bn {
+                                        switch op {
+                                            case .ADD: stack[a] = .number(an + bn); break arith
+                                            case .SUB: stack[a] = .number(an - bn); break arith
+                                            case .MUL: stack[a] = .number(an * bn); break arith
+                                            case .DIV: stack[a] = .number(an / bn); break arith
+                                            case .MOD:
+                                                let q = fmod(an, bn)
+                                                if (an < 0) != (bn < 0) {stack[a] = .number(q + bn); break arith}
+                                                stack[a] = .number(q)
+                                                break arith
+                                            case .POW: stack[a] = .number(pow(an, bn)); break arith
+                                            default: throw Lua.LuaError.vmError
+                                        }
+                                    }
+                                    if let mt = await rkb.metatable(in: state.luaState)?[.Constants.arithops[op]!].optional {
+                                        switch mt {
+                                            case .function(let fn):
+                                                let res = try await fn.call(in: state, with: [rkb, rkc])
+                                                stack[a] = res.first ?? .nil
+                                                break arith
+                                            default: throw await Lua.error(in: state, message: "attempt to call a \(mt.type) value")
+                                        }
+                                    } else if let mt = await rkc.metatable(in: state.luaState)?[.Constants.arithops[op]!].optional {
+                                        switch mt {
+                                            case .function(let fn):
+                                                let res = try await fn.call(in: state, with: [rkb, rkc])
+                                                stack[a] = res.first ?? .nil
+                                                break arith
+                                            default: throw await Lua.error(in: state, message: "attempt to call a \(mt.type) value")
+                                        }
+                                    }
+                                    if an != nil {
+                                        throw await Lua.error(in: state, message: "attempt to perform arithmetic on a \(rkc.type) value")
+                                    } else {
+                                        throw await Lua.error(in: state, message: "attempt to perform arithmetic on a \(rkb.type) value")
+                                    }
+                                } while false
                             case .UNM:
                                 if let n = stack[b].toNumber {
                                     stack[a] = .number(-n)
@@ -135,7 +182,7 @@ public actor CallInfo {
                                         }
                                 }
                             case .CONCAT:
-                                stack[a] = try await LuaVM.concat(strings: stack[Int(b)...Int(c)], in: state)
+                                stack[a] = try await state.concat(strings: stack[Int(b)...Int(c)])
                             case .EQ:
                                 let res: Bool
                                 if rkb == rkc {
@@ -200,17 +247,19 @@ public actor CallInfo {
                                     pc += 1
                                 }
                             case .CALL:
-                                if let newci = try await call(at: Int(a), args: b == 0 ? nil : Int(b - 1), returns: c == 0 ? nil : Int(c - 1), state: state, tailCall: false) {
+                                if let newci = try await call(at: Int(a), args: b == 0 ? nil : Int(b - 1), returns: c == 0 ? nil : Int(c - 1), tailCall: false) {
                                     savedpc = pc
                                     pc = 0
                                     nexec += 1
+                                    //return try await newci.execute(at: &pc, nexec: &nexec)
                                     return (nil, newci)
                                 }
                             case .TAILCALL:
                                 await state.popStack()
-                                if let newci = try await call(at: Int(a), args: b == 0 ? nil : Int(b - 1), returns: numResults, state: state, tailCall: true) {
+                                if let newci = try await call(at: Int(a), args: b == 0 ? nil : Int(b - 1), returns: numResults, tailCall: true) {
                                     tailcalls += 1
                                     pc = 0
+                                    //return try await newci.execute(at: &pc, nexec: &nexec)
                                     return (nil, newci)
                                 } else {
                                     await state.pushDummy(self) // immediately removed
@@ -235,6 +284,7 @@ public actor CallInfo {
                                 if let newpc = await stackTop.doReturn(with: &res, numResults: numResults) {
                                     pc = newpc
                                     return (nil, stackTop)
+                                    //return try await stackTop.execute(at: &pc, nexec: &nexec)
                                 } else {
                                     return (res, nil)
                                 }
@@ -369,10 +419,10 @@ public actor CallInfo {
         }
     }
 
-    private func call(function fn: LuaFunction, at idx: Int, args: Int?, returns: Int?, state: LuaThread, tailCall: Bool, metamethod: Bool = false) async throws -> CallInfo? {
+    private func call(function fn: LuaFunction, at idx: Int, args: Int?, returns: Int?, tailCall: Bool, metamethod: Bool = false) async throws -> CallInfo? {
         switch fn {
             case .lua(let cl):
-                let nextci = CallInfo(for: fn, numResults: returns, stackSize: Int(cl.proto.stackSize))
+                let nextci = CallInfo(in: state, for: fn, numResults: returns, stackSize: Int(cl.proto.stackSize))
                 var argv = args != nil ? (args == 0 ? [] : [LuaValue](stack[(idx + 1) ... (idx + args!)])) : [LuaValue](stack[(idx+1)..<top])
                 if metamethod {argv.insert(stack[idx], at: 0)}
                 if argv.count > cl.proto.numParams {
@@ -416,15 +466,16 @@ public actor CallInfo {
         }
     }
 
-    internal func call(at idx: Int, args: Int?, returns: Int?, state: LuaThread, tailCall: Bool = false) async throws -> CallInfo? {
+    @inline(__always)
+    private func call(at idx: Int, args: Int?, returns: Int?, tailCall: Bool = false) async throws -> CallInfo? {
         switch stack[idx] {
             case .function(let fn):
-                return try await call(function: fn, at: idx, args: args, returns: returns, state: state, tailCall: tailCall)
+                return try await call(function: fn, at: idx, args: args, returns: returns, tailCall: tailCall)
             default:
                 if let meta = await stack[idx].metatable(in: state.luaState)?[.Constants.__call] {
                     switch meta {
                         case .function(let fn):
-                            return try await call(function: fn, at: idx, args: args, returns: returns, state: state, tailCall: tailCall, metamethod: true)
+                            return try await call(function: fn, at: idx, args: args, returns: returns, tailCall: tailCall, metamethod: true)
                         default: break
                     }
                 }
@@ -560,114 +611,5 @@ public actor CallInfo {
 
     internal func set(at index: Int, value: LuaValue) {
         stack[index] = value
-    }
-}
-
-internal struct LuaVM {
-    internal static func execute(closure: LuaClosure, with args: [LuaValue], numResults: Int?, state: LuaThread) async throws -> [LuaValue] {
-        //print("Starting interpreter with args", args)
-        var ci = CallInfo(for: .lua(closure), numResults: numResults, stackSize: Int(closure.proto.stackSize))
-        var newargs = args
-        if newargs.count < closure.proto.numParams {
-            newargs.append(contentsOf: [LuaValue](repeating: .nil, count: Int(closure.proto.numParams) - args.count))
-        } else if newargs.count > closure.proto.numParams {
-            newargs = [LuaValue](newargs[0..<Int(closure.proto.numParams)])
-        }
-        await ci.prepare(args: args, newargs: newargs, closure: closure)
-        try await state.prepareCall(for: ci)
-        var nexec = 1
-        var pc = 0
-        while true {
-            let (res, newci) = try await ci.execute(at: &pc, in: state, nexec: &nexec)
-            if let res = res {
-                return res
-            } else if let newci = newci {
-                ci = newci
-            }
-        }
-    }
-
-    internal static func call(in ci: CallInfo, at idx: Int, args: Int?, returns: Int?, state: LuaThread, tailCall: Bool = false) async throws -> CallInfo? {
-        return try await ci.call(at: idx, args: args, returns: returns, state: state, tailCall: tailCall)
-    }
-
-    internal static func arith(op: LuaOpcode.Operation, _ a: LuaValue, _ b: LuaValue, state: LuaThread) async throws -> LuaValue {
-        let an = a.toNumber
-        let bn = b.toNumber
-        if let an = an, let bn = bn {
-            switch op {
-                case .ADD: return .number(an + bn)
-                case .SUB: return .number(an - bn)
-                case .MUL: return .number(an * bn)
-                case .DIV: return .number(an / bn)
-                case .MOD:
-                    let q = fmod(an, bn)
-                    if (an < 0) != (bn < 0) {return .number(q + bn)}
-                    return .number(q)
-                case .POW: return .number(pow(an, bn))
-                default: throw Lua.LuaError.vmError
-            }
-        }
-        if let mt = await a.metatable(in: state.luaState)?[.Constants.arithops[op]!].optional {
-            switch mt {
-                case .function(let fn):
-                    let res = try await fn.call(in: state, with: [a, b])
-                    return res.first ?? .nil
-                default: throw await Lua.error(in: state, message: "attempt to call a \(mt.type) value")
-            }
-        } else if let mt = await b.metatable(in: state.luaState)?[.Constants.arithops[op]!].optional {
-            switch mt {
-                case .function(let fn):
-                    let res = try await fn.call(in: state, with: [a, b])
-                    return res.first ?? .nil
-                default: throw await Lua.error(in: state, message: "attempt to call a \(mt.type) value")
-            }
-        }
-        if an != nil {
-            throw await Lua.error(in: state, message: "attempt to perform arithmetic on a \(b.type) value")
-        } else {
-            throw await Lua.error(in: state, message: "attempt to perform arithmetic on a \(a.type) value")
-        }
-    }
-
-    private static func concat(left: LuaValue, right: LuaValue, in state: LuaThread) async throws -> LuaValue {
-        if case let .string(ls) = left {
-            if case let .string(rs) = right {
-                return .string(.rope(ls, rs))
-            } else if case .number = right {
-                return .string(.rope(ls, .string(await right.toString)))
-            }
-        } else if case .number = left {
-            if case let .string(rs) = right {
-                return .string(.rope(.string(await left.toString), rs))
-            } else if case .number = right {
-                return .string(.rope(.string(await left.toString), .string(await right.toString)))
-            }
-        }
-        if let mt = await left.metatable(in: state.luaState)?[.Constants.__concat].optional {
-            switch mt {
-                case .function(let fn):
-                    let res = try await fn.call(in: state, with: [left, right])
-                    return res.first ?? .nil
-                default: throw await Lua.error(in: state, message: "attempt to call a \(mt.type) value")
-            }
-        } else if let mt = await right.metatable(in: state.luaState)?[.Constants.__concat].optional {
-            switch mt {
-                case .function(let fn):
-                    let res = try await fn.call(in: state, with: [left, right])
-                    return res.first ?? .nil
-                default: throw await Lua.error(in: state, message: "attempt to call a \(mt.type) value")
-            }
-        }
-        throw await Lua.error(in: state, message: "attempt to concatenate a \(left.type == "string" || left.type == "number" ? right.type : left.type) value")
-    }
-
-    internal static func concat(strings: ArraySlice<LuaValue>, in state: LuaThread) async throws -> LuaValue {
-        switch strings.count {
-            case 1: return strings.first!
-            case 2: return try await concat(left: strings.first!, right: strings[strings.index(after: strings.startIndex)], in: state)
-            //default: return try await concat(left: concat(strings: strings[strings.startIndex..<strings.startIndex.advanced(by: strings.count/2)], in: state), right: concat(strings: strings[strings.startIndex.advanced(by: strings.count/2)...], in: state), in: state)
-            default: return try await concat(left: strings.first!, right: concat(strings: strings[strings.index(after: strings.startIndex)...], in: state), in: state)
-        }
     }
 }

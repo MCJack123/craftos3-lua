@@ -68,6 +68,10 @@ public actor LuaThread: Hashable {
     internal var hookCount: Int = 0
     internal var hookCountLeft: Int = 0
     internal var allowHooks = true
+
+    public nonisolated var unownedExecutor: UnownedSerialExecutor {
+        return luaState.unownedExecutor
+    }
     
     /// The current state of the coroutine.
     public private(set) var state: State = .suspended
@@ -462,10 +466,36 @@ public actor LuaThread: Hashable {
         }
     }
 
+    private func execute(closure: LuaClosure, with args: [LuaValue], numResults: Int?) async throws -> [LuaValue] {
+        //print("Starting interpreter with args", args)
+        var ci = CallInfo(in: self, for: .lua(closure), numResults: numResults, stackSize: Int(closure.proto.stackSize))
+        var newargs = args
+        if newargs.count < closure.proto.numParams {
+            newargs.append(contentsOf: [LuaValue](repeating: .nil, count: Int(closure.proto.numParams) - args.count))
+        } else if newargs.count > closure.proto.numParams {
+            newargs = [LuaValue](newargs[0..<Int(closure.proto.numParams)])
+        }
+        await ci.prepare(args: args, newargs: newargs, closure: closure)
+        callStack.append(ci)
+        if let hook = hookFunction, hookFlags.contains(.call) {
+            _ = try await hook.call(in: self, with: [.string(.string("call"))])
+        }
+        var nexec = 1
+        var pc = 0
+        while true {
+            let (res, newci) = try await ci.execute(at: &pc, nexec: &nexec)
+            if let res = res {
+                return res
+            } else if let newci = newci {
+                ci = newci
+            }
+        }
+    }
+
     public func call(closure cl: LuaClosure, with args: [LuaValue]) async throws -> [LuaValue] {
         let top = callStack.count
         do {
-            return try await LuaVM.execute(closure: cl, with: args, numResults: nil, state: self)
+            return try await execute(closure: cl, with: args, numResults: nil)
         } catch LuaThread.CoroutineError.cancel {
             throw LuaThread.CoroutineError.cancel
         } catch let error {
@@ -477,7 +507,7 @@ public actor LuaThread: Hashable {
     public func pcall(closure cl: LuaClosure, with args: [LuaValue], handler: (Error) async throws -> LuaValue) async throws -> [LuaValue] {
         let top = callStack.count
         do {
-            return try await LuaVM.execute(closure: cl, with: args, numResults: nil, state: self)
+            return try await execute(closure: cl, with: args, numResults: nil)
         } catch LuaThread.CoroutineError.cancel {
             throw LuaThread.CoroutineError.cancel
         } catch let error {
@@ -537,13 +567,6 @@ public actor LuaThread: Hashable {
         }
     }
 
-    internal func prepareCall(for ci: CallInfo) async throws {
-        callStack.append(ci)
-        if let hook = hookFunction, hookFlags.contains(.call) {
-            _ = try await hook.call(in: self, with: [.string(.string("call"))])
-        }
-    }
-
     internal func prepareCall(for ci: CallInfo, tailCall: Bool) async throws {
         callStack.append(ci)
         if let hook = hookFunction, allowHooks && hookFlags.contains(tailCall ? .tailCall : .call) {
@@ -554,7 +577,7 @@ public actor LuaThread: Hashable {
     }
 
     internal func call(swift sfn: LuaSwiftFunction, function fn: LuaFunction, in ci: CallInfo, at idx: Int, args: Int?, returns: Int?, tailCall: Bool) async throws -> [LuaValue] {
-        callStack.append(CallInfo(for: fn, numResults: returns, stackSize: 0))
+        callStack.append(CallInfo(in: self, for: fn, numResults: returns, stackSize: 0))
         let argv = await ci.get(args: args, at: idx)
         //print("Arguments:", argv)
         if let hook = hookFunction, allowHooks && hookFlags.contains(tailCall ? .tailCall : .call) {
@@ -570,5 +593,46 @@ public actor LuaThread: Hashable {
             _ = try await hook.call(in: self, with: [.string(.string("return"))])
         }
         return res
+    }
+
+    private func concat(left: LuaValue, right: LuaValue) async throws -> LuaValue {
+        if case let .string(ls) = left {
+            if case let .string(rs) = right {
+                return .string(.rope(ls, rs))
+            } else if case .number = right {
+                return .string(.rope(ls, .string(await right.toString)))
+            }
+        } else if case .number = left {
+            if case let .string(rs) = right {
+                return .string(.rope(.string(await left.toString), rs))
+            } else if case .number = right {
+                return .string(.rope(.string(await left.toString), .string(await right.toString)))
+            }
+        }
+        if let mt = await left.metatable(in: self.luaState)?[.Constants.__concat].optional {
+            switch mt {
+                case .function(let fn):
+                    let res = try await fn.call(in: self, with: [left, right])
+                    return res.first ?? .nil
+                default: throw await Lua.error(in: self, message: "attempt to call a \(mt.type) value")
+            }
+        } else if let mt = await right.metatable(in: self.luaState)?[.Constants.__concat].optional {
+            switch mt {
+                case .function(let fn):
+                    let res = try await fn.call(in: self, with: [left, right])
+                    return res.first ?? .nil
+                default: throw await Lua.error(in: self, message: "attempt to call a \(mt.type) value")
+            }
+        }
+        throw await Lua.error(in: self, message: "attempt to concatenate a \(left.type == "string" || left.type == "number" ? right.type : left.type) value")
+    }
+
+    internal func concat(strings: ArraySlice<LuaValue>) async throws -> LuaValue {
+        switch strings.count {
+            case 1: return strings.first!
+            case 2: return try await concat(left: strings.first!, right: strings[strings.index(after: strings.startIndex)])
+            //default: return try await concat(left: concat(strings: strings[strings.startIndex..<strings.startIndex.advanced(by: strings.count/2)], in: state), right: concat(strings: strings[strings.startIndex.advanced(by: strings.count/2)...], in: state), in: state)
+            default: return try await concat(left: strings.first!, right: concat(strings: strings[strings.index(after: strings.startIndex)...]))
+        }
     }
 }
